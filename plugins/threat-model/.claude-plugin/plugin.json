@@ -1,0 +1,10 @@
+{
+  "name": "threat-model",
+  "version": "1.0.0",
+  "description": "Analyze PRs for security threats with STRIDE/DFD analysis, MITRE ATT&CK and OWASP mapping for OpenShift edge topologies (TNA, TNF, SNO, LVMS)",
+  "author": {
+    "name": "TNF Security"
+  },
+  "license": "Apache-2.0",
+  "keywords": ["security", "threat-model", "stride", "mitre", "owasp", "openshift", "tnf", "tna", "sno", "lvms"]
+}
