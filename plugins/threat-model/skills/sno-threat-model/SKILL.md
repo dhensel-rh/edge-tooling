@@ -15,14 +15,17 @@ This skill focuses on SNO-specific DFD elements, trust boundaries, and code path
 ## Reference Files
 
 Bundled with this skill:
+
 - `dfd-elements-sno.md` — SNO DFD element catalog (SNO-P1–P6, SNO-DS1–DS6, SNO-DF1–DF10, SNO-TB1–TB3)
 
 Shared references (in `../../references/`):
+
 - `mitre-reference.md` — MITRE ATT&CK lookup with DFD element mappings
 - `owasp-reference.md` — OWASP Top 10:2025 mapping with DFD element cross-references
 - `mitre-findings-template.md` — Template for cumulative findings tracker
 
 Discovered at runtime from the workspace:
+
 - `$THREAT_MODEL_DIR/SNO-THREAT-MODEL.md` — SNO formal threat model (when available)
 - `$FINDINGS_FILE` — SNO findings tracker (created from template on first use)
 
@@ -259,6 +262,7 @@ When a PR modifies code that crosses a trust boundary, apply additional scrutiny
 For each affected DFD element, ask these questions:
 
 **Processes (all 6 STRIDE categories)**:
+
 - **S**: Can the process be impersonated? Are auth checks adequate?
 - **T**: Can inputs/outputs be modified? Is data validated?
 - **R**: Are actions auditable? Are logs adequate and redacted?
@@ -267,16 +271,19 @@ For each affected DFD element, ask these questions:
 - **E**: Does it run with minimal privilege? Can it be abused for escalation?
 
 **Data Stores (T, I, D)**:
+
 - **T**: Can stored data be modified by unauthorized parties?
 - **I**: Is sensitive data encrypted? Who can read it?
 - **D**: Can the store be corrupted or deleted? (Single etcd member — total loss)
 
 **Data Flows (T, I, D)**:
+
 - **T**: Can data in transit be modified? Is integrity verified?
 - **I**: Is the channel encrypted? Are credentials visible?
 - **D**: Can the flow be interrupted or flooded?
 
 **External Entities (S, R)**:
+
 - **S**: Can the entity be impersonated? Is authentication enforced?
 - **R**: Can the entity deny having performed an action? Are interactions logged?
 

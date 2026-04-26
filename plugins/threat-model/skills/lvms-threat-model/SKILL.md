@@ -15,14 +15,17 @@ Analyze a pull request for security threats against the **LVMS (LVM Storage)** o
 ## Reference Files
 
 Bundled with this skill:
+
 - `dfd-elements-lvms.md` — LVMS DFD element catalog (placeholder — not yet modeled)
 
 Shared references (in `../../references/`):
+
 - `mitre-reference.md` — MITRE ATT&CK lookup with DFD element mappings
 - `owasp-reference.md` — OWASP Top 10:2025 mapping with DFD element cross-references
 - `mitre-findings-template.md` — Template for cumulative findings tracker
 
 Discovered at runtime from the workspace:
+
 - `$THREAT_MODEL_DIR/LVMS-THREAT-MODEL.md` — LVMS formal threat model (when available)
 - `$FINDINGS_FILE` — LVMS findings tracker (created from template on first use)
 
@@ -223,6 +226,7 @@ shellcheck -s bash <script-file>
 > **Not yet modeled.** Once `dfd-elements-lvms.md` is populated with DFD elements, add code path mapping and trust boundary crossing tables here.
 
 When the DFD is available, the analysis should follow the same STRIDE methodology as TNF/TNA:
+
 - Map changed files to affected DFD elements
 - Apply per-element STRIDE questions
 - Cross-reference against `LVMS-THREAT-MODEL.md`
