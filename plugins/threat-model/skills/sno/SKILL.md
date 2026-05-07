@@ -18,7 +18,7 @@ Bundled with this skill:
 
 - `dfd-elements-sno.md` — SNO DFD element catalog (SNO-P1–P6, SNO-DS1–DS6, SNO-DF1–DF10, SNO-TB1–TB3)
 
-Shared references (in `../../references/`):
+Shared references (in `$PLUGIN_DIR/references/`):
 
 - `mitre-reference.md` — MITRE ATT&CK lookup with DFD element mappings
 - `owasp-reference.md` — OWASP Top 10:2025 mapping with DFD element cross-references
@@ -61,7 +61,7 @@ Before starting analysis, discover the workspace layout.
      - `$WORKSPACE/docs/`
      - The current directory
    - **Report output**: Write reports to the same directory where the threat model is found. If not found, write to `$WORKSPACE/reports/` (create if needed).
-   - **Findings tracker**: `$WORKSPACE/.claude/skills/threat-model/mitre-findings-sno.md` — initialized from `../../references/mitre-findings-template.md` on first use.
+   - **Findings tracker**: `$WORKSPACE/.claude/skills/threat-model/mitre-findings-sno.md` — initialized from `$PLUGIN_DIR/references/mitre-findings-template.md` on first use.
 
 3. **Validate workspace**: Warn the user if:
    - No `repos/` directory is found
@@ -102,7 +102,7 @@ cat >> "$FINDINGS_FILE" <<'FINDINGS_BLOCK'
 FINDINGS_BLOCK
 ```
 
-Substitute `RESOLVED_TEMPLATE_PATH` with the absolute path to `../../references/mitre-findings-template.md` (resolved from this skill's directory). Fill in `REPO`, `NUMBER`, `YYYY-MM-DD`, and the table rows from the current analysis.
+Substitute `RESOLVED_TEMPLATE_PATH` with the absolute path to `$PLUGIN_DIR/references/mitre-findings-template.md` (resolved from this skill's directory). Fill in `REPO`, `NUMBER`, `YYYY-MM-DD`, and the table rows from the current analysis.
 
 ## Input Formats
 
@@ -162,7 +162,7 @@ Detects the repository from the current working directory.
 7. **Map to DFD elements** — identify which DFD elements are affected using the SNO mapping table below and `dfd-elements-sno.md`
 8. **Apply per-element STRIDE** to affected elements and cross-reference against `$THREAT_MODEL_DIR/SNO-THREAT-MODEL.md` (if found)
 9. **Combine findings** from ShellCheck + AI analysis + DFD/STRIDE analysis
-10. **Map findings to MITRE ATT&CK** techniques (see `../../references/mitre-reference.md`)
+10. **Map findings to MITRE ATT&CK** techniques (see `$PLUGIN_DIR/references/mitre-reference.md`)
 11. **Generate report** at `$REPORT_DIR/`
 12. **Append findings to tracker** — follow the Append Protocol to write a findings block to `$FINDINGS_FILE`
 
@@ -300,163 +300,6 @@ If the formal threat model file is not found, skip cross-referencing and note th
 
 ---
 
-## Report Naming Convention
+## Report Output
 
-- **Full threat model**: `PR<number>-THREAT-MODEL-<repo>.md`
-- **Individual vuln**: `VULN-PR<number>-<short-desc>.md`
-
-## Report Format: Threat Model
-
-```markdown
-# PR #<number> Threat Analysis: <PR Title>
-
-**Document Version**: 1.0
-**Date**: YYYY-MM-DD
-**Classification**: Internal - Security Sensitive
-**Repository**: <repo>
-**Topology**: SNO
-**PR Author**: <author>
-**PR URL**: <url>
-
----
-
-## Executive Summary
-
-[Brief overview of the PR and key security findings]
-
-### Findings Summary
-
-| Severity | Count | Summary |
-|----------|-------|---------|
-| Critical | X | [brief] |
-| High | X | [brief] |
-| Medium | X | [brief] |
-| Low | X | [brief] |
-
----
-
-## Change Overview
-
-[What this PR does, its purpose, and security-relevant changes]
-
----
-
-## Affected Files
-
-| File | Changes | Security Relevance |
-|------|---------|-------------------|
-| path/to/file.go | +X/-Y lines | [relevance] |
-
----
-
-## DFD Impact Analysis
-
-This PR affects the following elements in the SNO Data Flow Diagram
-(see SNO-THREAT-MODEL.md):
-
-### Affected DFD Elements
-
-| Element | Name | Impact | Trust Boundary |
-|---------|------|--------|----------------|
-| SNO-P# | [process name] | [what changed] | SNO-TB# |
-| SNO-DS# | [store name] | [what changed] | SNO-TB# |
-
-### Trust Boundary Crossings
-
-[Describe any trust boundaries crossed by the changed code]
-
-### Per-Element STRIDE
-
-| Element | S | T | R | I | D | E | Notes |
-|---------|---|---|---|---|---|---|-------|
-| SNO-P# | - | - | - | - | - | - | [Processes: all 6] |
-| SNO-DS# | N/A | - | N/A | - | - | N/A | [Data Stores: T, I, D] |
-
-**Legend**: **X** = new threat found, **~** = existing threat modified, **-** = no impact, N/A = not applicable
-
-### Threat Model Cross-Reference
-
-| PR Finding | Existing PE-* ID | Status |
-|------------|-----------------|--------|
-| [finding] | PE-SNO-XX-X-X | Matches existing / New gap / Mitigated |
-
----
-
-## Threat Analysis
-
-### VULN-1: [Vulnerability Title]
-
-**Severity**: Critical/High/Medium/Low
-**OWASP**: A##:2025 - Category Name
-**MITRE ATT&CK**: T#### - Technique Name
-**CWE**: CWE-###
-
-#### Affected Code
-
-**File**: `path/to/file.go:line`
-
-#### Description
-
-[Detailed description]
-
-#### Attack Vector
-
-[How this could be exploited]
-
-#### Impact
-
-- **Confidentiality**: [impact]
-- **Integrity**: [impact]
-- **Availability**: [impact]
-
-#### Recommended Fix
-
-[Code showing the fix]
-
----
-
-## OWASP & MITRE ATT&CK Mapping
-
-| Finding | OWASP | MITRE | CWE | Status |
-|---------|-------|-------|-----|--------|
-| VULN-1 | A05:2025 Injection | T1059 | CWE-78 | Open |
-
----
-
-## Risk Assessment
-
-| Finding | Likelihood | Impact | Risk |
-|---------|------------|--------|------|
-| VULN-1 | High | Critical | Critical |
-
----
-
-## Recommendations
-
-### For Developers (Code Changes)
-
-1. [Recommendations]
-
-### For Customers (Deployment & Operations)
-
-1. [Recommendations]
-
----
-
-## References
-
-- [OWASP Top 10:2025](https://owasp.org/Top10/2025/)
-- [MITRE ATT&CK](https://attack.mitre.org/)
-```
-
-## Available Repositories
-
-| Repo | Org | Focus Areas |
-|------|-----|-------------|
-| installer | openshift | Install config, ignition |
-| machine-config-operator | openshift | Node config, privilege escalation |
-| cluster-etcd-operator | openshift | Etcd management |
-| assisted-service | openshift | API security, credential handling |
-| origin | openshift | Test code security |
-| dev-scripts | openshift-metal3 | Shell scripts, credential handling |
-| release | openshift | Release artifacts, CI/CD, manifests |
+Use report templates from `$PLUGIN_DIR/references/report-templates.md`. Set `<topology>` to **SNO** when filling in the templates.

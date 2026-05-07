@@ -18,7 +18,7 @@ Bundled with this skill:
 
 - `dfd-elements-lvms.md` — LVMS DFD element catalog (placeholder — not yet modeled)
 
-Shared references (in `../../references/`):
+Shared references (in `$PLUGIN_DIR/references/`):
 
 - `mitre-reference.md` — MITRE ATT&CK lookup with DFD element mappings
 - `owasp-reference.md` — OWASP Top 10:2025 mapping with DFD element cross-references
@@ -61,7 +61,7 @@ Before starting analysis, discover the workspace layout.
      - `$WORKSPACE/docs/`
      - The current directory
    - **Report output**: Write reports to the same directory where the threat model is found. If not found, write to `$WORKSPACE/reports/` (create if needed).
-   - **Findings tracker**: `$WORKSPACE/.claude/skills/threat-model/mitre-findings-lvms.md` — initialized from `../../references/mitre-findings-template.md` on first use.
+   - **Findings tracker**: `$WORKSPACE/.claude/skills/threat-model/mitre-findings-lvms.md` — initialized from `$PLUGIN_DIR/references/mitre-findings-template.md` on first use.
 
 3. **Validate workspace**: Warn the user if:
    - No `repos/` directory is found
@@ -102,7 +102,7 @@ cat >> "$FINDINGS_FILE" <<'FINDINGS_BLOCK'
 FINDINGS_BLOCK
 ```
 
-Substitute `RESOLVED_TEMPLATE_PATH` with the absolute path to `../../references/mitre-findings-template.md` (resolved from this skill's directory). Fill in `REPO`, `NUMBER`, `YYYY-MM-DD`, and the table rows from the current analysis.
+Substitute `RESOLVED_TEMPLATE_PATH` with the absolute path to `$PLUGIN_DIR/references/mitre-findings-template.md` (resolved from this skill's directory). Fill in `REPO`, `NUMBER`, `YYYY-MM-DD`, and the table rows from the current analysis.
 
 ## Input Formats
 
@@ -157,7 +157,7 @@ Detects the repository from the current working directory.
 7. **Map to DFD elements** — if `dfd-elements-lvms.md` has been populated, map changed files to affected DFD elements. If not yet modeled, skip and note in the report.
 8. **Apply per-element STRIDE** to affected elements (if DFD is available) and cross-reference against `$THREAT_MODEL_DIR/LVMS-THREAT-MODEL.md` (if found)
 9. **Combine findings** from ShellCheck + AI analysis + DFD/STRIDE analysis
-10. **Map findings to MITRE ATT&CK** techniques (see `../../references/mitre-reference.md`)
+10. **Map findings to MITRE ATT&CK** techniques (see `$PLUGIN_DIR/references/mitre-reference.md`)
 11. **Generate report** at `$REPORT_DIR/`
 12. **Append findings to tracker** — follow the Append Protocol to write a findings block to `$FINDINGS_FILE`
 
@@ -233,131 +233,6 @@ When the DFD is available, the analysis should follow the same STRIDE methodolog
 
 ---
 
-## Report Naming Convention
+## Report Output
 
-- **Full threat model**: `PR<number>-THREAT-MODEL-<repo>.md`
-- **Individual vuln**: `VULN-PR<number>-<short-desc>.md`
-
-## Report Format: Threat Model
-
-```markdown
-# PR #<number> Threat Analysis: <PR Title>
-
-**Document Version**: 1.0
-**Date**: YYYY-MM-DD
-**Classification**: Internal - Security Sensitive
-**Repository**: <repo>
-**Topology**: LVMS
-**PR Author**: <author>
-**PR URL**: <url>
-
----
-
-## Executive Summary
-
-[Brief overview of the PR and key security findings]
-
-### Findings Summary
-
-| Severity | Count | Summary |
-|----------|-------|---------|
-| Critical | X | [brief] |
-| High | X | [brief] |
-| Medium | X | [brief] |
-| Low | X | [brief] |
-
----
-
-## Change Overview
-
-[What this PR does, its purpose, and security-relevant changes]
-
----
-
-## Affected Files
-
-| File | Changes | Security Relevance |
-|------|---------|-------------------|
-| path/to/file.go | +X/-Y lines | [relevance] |
-
----
-
-## DFD Impact Analysis
-
-> DFD model not yet defined for LVMS. This section will be populated once `dfd-elements-lvms.md` is created.
-
----
-
-## Threat Analysis
-
-### VULN-1: [Vulnerability Title]
-
-**Severity**: Critical/High/Medium/Low
-**OWASP**: A##:2025 - Category Name
-**MITRE ATT&CK**: T#### - Technique Name
-**CWE**: CWE-###
-
-#### Affected Code
-
-**File**: `path/to/file.go:line`
-
-#### Description
-
-[Detailed description]
-
-#### Attack Vector
-
-[How this could be exploited]
-
-#### Impact
-
-- **Confidentiality**: [impact]
-- **Integrity**: [impact]
-- **Availability**: [impact]
-
-#### Recommended Fix
-
-[Code showing the fix]
-
----
-
-## OWASP & MITRE ATT&CK Mapping
-
-| Finding | OWASP | MITRE | CWE | Status |
-|---------|-------|-------|-----|--------|
-| VULN-1 | A05:2025 Injection | T1059 | CWE-78 | Open |
-
----
-
-## Risk Assessment
-
-| Finding | Likelihood | Impact | Risk |
-|---------|------------|--------|------|
-| VULN-1 | High | Critical | Critical |
-
----
-
-## Recommendations
-
-### For Developers (Code Changes)
-
-1. [Recommendations]
-
-### For Customers (Deployment & Operations)
-
-1. [Recommendations]
-
----
-
-## References
-
-- [OWASP Top 10:2025](https://owasp.org/Top10/2025/)
-- [MITRE ATT&CK](https://attack.mitre.org/)
-```
-
-## Available Repositories
-
-| Repo | Org | Focus Areas |
-|------|-----|-------------|
-| lvm-operator | openshift | CSI driver, VG management, privilege, LVM commands |
-| origin | openshift | Test code security |
+Use report templates from `$PLUGIN_DIR/references/report-templates.md`. Set `<topology>` to **LVMS** when filling in the templates.
