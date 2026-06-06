@@ -1,0 +1,218 @@
+name: cluster-diagnostic-eval
+description: Evaluate the cluster-diagnostic skill across validate, recovery-guide, and game modes
+skill: two-node:cluster-diagnostic
+
+execution:
+  mode: case
+  arguments: "{command_input}"
+  timeout: 300
+  max_budget_usd: 3.0
+
+runner:
+  type: claude-code
+  plugin_dirs:
+    - plugins/two-node
+
+models:
+  skill: claude-opus-4-6
+  judge: claude-opus-4-6
+  hook: claude-sonnet-4-6
+
+permissions:
+  allow: []
+  deny: []
+
+mlflow:
+  experiment: cluster-diagnostic-eval
+
+dataset:
+  path: cluster-diagnostic/cases
+  schema: |
+    Each case directory contains:
+    - input.yaml: YAML file with:
+      - 'command_input' (string): The full argument string passed to the skill.
+        For validate mode: 'validate <procedure text>'
+        For recovery-guide mode: 'recovery-guide <scenario-name>'
+        For game mode: 'game' (requires AskUserQuestion interception)
+      - 'mode' (string): One of 'validate', 'recovery-guide', 'game'
+        Used by annotation-aware judges to apply mode-specific checks.
+    - annotations.yaml: Expected outcomes for the test case:
+      - 'mode' (string): validate | recovery-guide | game
+      - 'expected_blockers' (list): BLOCKER findings expected (validate mode)
+      - 'expected_warnings' (list): WARNING findings expected (validate mode)
+      - 'expected_scenario' (string): scenario name (recovery-guide mode)
+      - 'should_reject' (bool): whether the procedure should be rejected (validate mode)
+
+    Note: diagnose mode is excluded from eval because it requires live SSH
+    access to cluster nodes. Test validate and recovery-guide modes which
+    operate on text input against the knowledge base.
+
+inputs:
+  tools:
+    - match: Questions asked to the user via AskUserQuestion (game mode)
+      prompt: |
+        Answer based on the test case context in input.yaml and answers.yaml.
+        For game mode selection, pick 'quiz' unless answers.yaml specifies otherwise.
+        For quiz/scenario/rapid-fire answers, use answers.yaml guidance.
+        Default: pick the first option.
+
+outputs:
+  - path: output
+    schema: |
+      This skill produces conversation output only — no files are written to disk.
+      Judges should use {{ conversation }} to evaluate the assistant's response text.
+
+      For validate mode: expect a findings list with BLOCKER/WARNING/INFO severity
+      classifications, each referencing a failure mode from the knowledge base.
+
+      For recovery-guide mode: expect step-by-step markdown with bash commands
+      using parameter templates ($BMC_USER, $BMC_PASS, etc.) and verification steps.
+
+      For game mode: expect interactive questions, scoring, and a final rating
+      (Novice/Operator/Expert/TNF Master).
+
+traces:
+  stdout: true
+  stderr: true
+  events: true
+  metrics: true
+
+judges:
+  - name: budget_check
+    builtin: cost_budget
+    arguments:
+      max_cost_usd: 3.0
+
+  - name: severity_classification
+    description: |
+      For validate mode: checks that BLOCKER/WARNING/INFO severity is correctly
+      assigned. Sequential shutdown and pcs standby must be BLOCKER. ForceOff
+      must be INFO or WARNING, not BLOCKER.
+    if: "annotations.get('mode') == 'validate'"
+    check: |
+      conversation = outputs.get("conversation", "")
+      ann = outputs.get("annotations", {})
+      expected_blockers = ann.get("expected_blockers", [])
+      should_reject = ann.get("should_reject", False)
+
+      if not conversation:
+          return (False, "No conversation output found")
+
+      conv_upper = conversation.upper()
+      has_blocker = "BLOCKER" in conv_upper
+
+      if should_reject and not has_blocker:
+          return (False, "Procedure should have been rejected with BLOCKER but no BLOCKER found")
+
+      if not should_reject and has_blocker:
+          return (False, "Procedure should NOT have BLOCKER findings but BLOCKER was found")
+
+      found_blockers = []
+      for b in expected_blockers:
+          if b.lower() in conversation.lower():
+              found_blockers.append(b)
+
+      if expected_blockers and not found_blockers:
+          return (False, f"Expected blockers {expected_blockers} not found in output")
+
+      return (True, f"Severity classification correct. Blockers found: {found_blockers}")
+
+  - name: procedure_completeness
+    description: |
+      For recovery-guide mode: checks that the returned procedure includes
+      bash commands, verification steps, and parameter templates.
+    if: "annotations.get('mode') == 'recovery-guide'"
+    check: |
+      conversation = outputs.get("conversation", "")
+
+      if not conversation:
+          return (False, "No conversation output found")
+
+      checks = {
+          "bash_commands": any(marker in conversation for marker in ["```bash", "```sh", "curl ", "pcs ", "oc "]),
+          "has_verification": any(w in conversation.lower() for w in ["verify", "confirm", "check", "poll", "wait"]),
+          "has_parameters": any(p in conversation for p in ["$BMC", "$NODE", "BMC_USER", "BMC_PASS", "BMC_HOST"]),
+      }
+
+      passed = sum(checks.values())
+      total = len(checks)
+      failed = [k for k, v in checks.items() if not v]
+
+      if passed == total:
+          return (True, f"All {total} completeness checks passed")
+      else:
+          return (False, f"{passed}/{total} checks passed. Missing: {failed}")
+
+  - name: forbidden_recommendations
+    description: |
+      Checks that the skill never recommends procedures that violate known
+      failure modes: pcs node standby, sequential shutdown, shutdown -h.
+    check: |
+      conversation = outputs.get("conversation", "")
+      ann = outputs.get("annotations", {})
+      mode = ann.get("mode", "")
+
+      if not conversation:
+          return (False, "No conversation output found")
+
+      # Only check recommendations sections, not quoted failure descriptions
+      forbidden = []
+
+      # Check if skill RECOMMENDS (not just mentions) dangerous procedures
+      conv_lower = conversation.lower()
+
+      recommend_sections = []
+      for marker in ["recommend", "suggested", "recovery", "procedure", "steps to"]:
+          idx = conv_lower.find(marker)
+          if idx >= 0:
+              recommend_sections.append(conversation[idx:idx+500])
+
+      for section in recommend_sections:
+          sec_lower = section.lower()
+          if "pcs node standby" in sec_lower and "never" not in sec_lower and "do not" not in sec_lower:
+              forbidden.append("pcs node standby recommended")
+          if "shutdown -h 1" in sec_lower and "never" not in sec_lower and "do not" not in sec_lower:
+              forbidden.append("shutdown -h 1 recommended")
+
+      if forbidden:
+          return (False, f"Forbidden recommendations found: {forbidden}")
+      return (True, "No forbidden procedures recommended")
+
+  - name: knowledge_base_accuracy
+    description: |
+      LLM judge that evaluates whether the skill's response accurately
+      reflects the TNF knowledge base content — correct failure modes,
+      proper severity classification reasoning, and accurate recovery procedures.
+    prompt: |
+      Evaluate whether this cluster-diagnostic skill response is accurate
+      and complete for the given mode.
+
+      ## Skill Response
+      {{ conversation }}
+
+      ## Test Case Annotations
+      {{ annotations }}
+
+      ## Scoring Criteria
+
+      Score 1-5:
+      - 5: Response is fully accurate, references correct failure modes,
+           severity is properly justified, procedures match tested bare metal results
+      - 4: Minor omissions but no inaccuracies, severity is correct
+      - 3: Mostly accurate but missing important details or has minor inaccuracy
+      - 2: Contains inaccurate claims about TNF behavior or recommends untested procedures
+      - 1: Fundamentally incorrect — wrong failure modes, wrong severity, dangerous recommendations
+
+      Return a JSON object: {"score": <1-5>, "rationale": "<explanation>"}
+
+thresholds:
+  budget_check:
+    min_pass_rate: 1.0
+  severity_classification:
+    min_pass_rate: 0.8
+  procedure_completeness:
+    min_pass_rate: 0.8
+  forbidden_recommendations:
+    min_pass_rate: 1.0
+  knowledge_base_accuracy:
+    min_mean: 3.5

@@ -1,0 +1,4 @@
+command_input: >-
+  validate "Put both nodes in standby using pcs node standby --all,
+  wait for resources to stop, then power off the servers"
+mode: validate

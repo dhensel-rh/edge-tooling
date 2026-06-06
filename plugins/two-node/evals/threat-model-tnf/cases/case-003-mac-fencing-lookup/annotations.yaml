@@ -1,0 +1,16 @@
+description: >
+  Adds MAC-address based fencing credentials lookup. Introduces a new data flow
+  for credential resolution and modifies the fencing job's credential discovery
+  path. Tests DFD mapping for P5 and the credential pipeline.
+has_shell_scripts: false
+has_trust_boundary_crossing: true
+expected_severities:
+  - High
+  - Medium
+affected_dfd_elements:
+  - P5
+  - DS2
+  - DF4
+expected_mitre_techniques:
+  - T1552
+  - T1078

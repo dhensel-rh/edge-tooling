@@ -1,0 +1,9 @@
+mode: validate
+expected_blockers:
+  - sequential shutdown
+  - shutdown -h
+expected_warnings:
+  - cordon
+  - drain
+expected_scenario: null
+should_reject: true

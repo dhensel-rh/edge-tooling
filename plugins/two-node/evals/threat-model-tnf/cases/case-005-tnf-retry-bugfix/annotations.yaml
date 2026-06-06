@@ -1,0 +1,15 @@
+description: >
+  Bug fix gating dual-replica setup and adding retry logic in TNF pipeline.
+  Modifies P4 (Setup Job) behavior. Tests whether the skill correctly identifies
+  denial-of-service risk from retry logic changes and setup gate modifications.
+  Uses bare PR number format — tests repo auto-detection from CWD.
+has_shell_scripts: false
+has_trust_boundary_crossing: false
+expected_severities:
+  - Medium
+  - Low
+affected_dfd_elements:
+  - P4
+  - P2
+expected_mitre_techniques:
+  - T1499

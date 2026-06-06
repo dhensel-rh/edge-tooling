@@ -1,0 +1,9 @@
+description: >
+  Trivial indentation fix in nfsserver — not TNF-specific, no shell scripts
+  relevant to TNF. Should produce a report with minimal or no security findings.
+  Edge case testing the skill's handling of low-risk, non-TNF PRs.
+has_shell_scripts: false
+has_trust_boundary_crossing: false
+expected_severities: []
+affected_dfd_elements: []
+expected_mitre_techniques: []

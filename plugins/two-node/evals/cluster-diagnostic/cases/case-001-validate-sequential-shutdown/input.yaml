@@ -1,0 +1,4 @@
+command_input: >-
+  validate "cordon all nodes, drain workloads, then shut down each node
+  one at a time using shutdown -h 1 via oc debug"
+mode: validate

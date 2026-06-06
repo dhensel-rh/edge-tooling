@@ -1,0 +1,5 @@
+mode: recovery-guide
+expected_blockers: []
+expected_warnings: []
+expected_scenario: standby
+should_reject: false

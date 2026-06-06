@@ -1,0 +1,3 @@
+pr_input: "cluster-etcd-operator 1611"
+repo: cluster-etcd-operator
+org: openshift

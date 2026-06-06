@@ -1,0 +1,21 @@
+description: >
+  Adds a TNF fencing credentials rotation script. This touches the full credential
+  flow path (DS2→P5→DS3) and should identify high-severity findings around
+  credential handling, STONITH configuration, and BMC access. Complex case with
+  multiple DFD elements affected.
+has_shell_scripts: true
+has_trust_boundary_crossing: true
+expected_severities:
+  - Critical
+  - High
+  - Medium
+affected_dfd_elements:
+  - P5
+  - DS2
+  - DS3
+  - DF4
+  - DF7
+expected_mitre_techniques:
+  - T1552
+  - T1059
+  - T1529

@@ -1,0 +1,18 @@
+description: >
+  Shell script PR that adds kubeconfig-based K8s API access to the podman-etcd
+  OCF agent. Introduces new trust boundary crossing (TB4→TB2) and credential
+  dependency. Should trigger ShellCheck analysis and identify credential exposure.
+has_shell_scripts: true
+has_trust_boundary_crossing: true
+expected_severities:
+  - High
+  - Medium
+  - Low
+affected_dfd_elements:
+  - P7
+  - DS5
+  - DF11
+expected_mitre_techniques:
+  - T1552
+  - T1078
+  - T1005

@@ -1,0 +1,5 @@
+command_input: >-
+  validate "Send Redfish GracefulShutdown to both nodes simultaneously
+  using curl, poll PowerState until Off, then send On to both nodes
+  to restart"
+mode: validate
