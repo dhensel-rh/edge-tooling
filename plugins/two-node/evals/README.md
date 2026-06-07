@@ -14,12 +14,14 @@ Claude Code plugin.
 ## Running Locally
 
 ```bash
-# Install the eval harness plugin first
+# Install the eval harness plugin
 /plugin marketplace add opendatahub-skills/agent-eval-harness
 
-# Run an eval
+# Run an existing eval
 /eval-run --model claude-opus-4-6 --config evals/cluster-diagnostic.yaml
 ```
+
+To create a new eval, see [Adding a New Eval](#adding-a-new-eval) below.
 
 ## Running in CI
 
@@ -43,8 +45,33 @@ evals/
 
 ## Adding a New Eval
 
-1. `/eval-analyze --skill <name> --config evals/<name>.yaml`
-2. `/eval-dataset --config evals/<name>.yaml`
-3. `/eval-run --model claude-opus-4-6 --config evals/<name>.yaml`
-4. `/eval-review --run-id <id> --config evals/<name>.yaml`
-5. Commit the config, analysis, and cases. Run artifacts are ephemeral.
+1. **Analyze the skill** — reads SKILL.md, designs judges, writes the eval config
+   ```
+   /eval-analyze --skill <name> --config evals/<name>.yaml
+   ```
+
+2. **Generate test cases** — creates `input.yaml` + `annotations.yaml` per case
+   ```
+   /eval-dataset --config evals/<name>.yaml
+   ```
+
+3. **Run the eval** — executes the skill against each case, scores with judges, generates HTML report
+   ```
+   /eval-run --model claude-opus-4-6 --config evals/<name>.yaml
+   ```
+
+4. **Review results** — walk through cases, collect human feedback
+   ```
+   /eval-review --run-id <run-id> --config evals/<name>.yaml
+   ```
+
+5. **(Optional) Optimize** — auto-fix SKILL.md based on judge failures, re-run to verify
+   ```
+   /eval-optimize --config evals/<name>.yaml
+   ```
+
+6. **Commit and CI**
+   - Commit `evals/<name>.yaml`, `evals/<name>.md`, and `evals/<name>/cases/` to this repo
+   - Add a CI entry in [openshift/release](https://github.com/openshift/release)
+     pointing `EVAL_CONFIG` to the yaml path
+   - PR reviewers can then trigger the eval with `/test eval-<name>`
