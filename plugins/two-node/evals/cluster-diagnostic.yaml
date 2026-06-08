@@ -26,7 +26,7 @@ mlflow:
   experiment: cluster-diagnostic-eval
 
 dataset:
-  path: cluster-diagnostic/cases
+  path: plugins/two-node/evals/cluster-diagnostic/cases
   schema: |
     Each case directory contains:
     - input.yaml: YAML file with:

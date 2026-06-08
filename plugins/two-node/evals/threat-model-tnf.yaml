@@ -25,7 +25,7 @@ mlflow:
   experiment: threat-model-tnf-eval
 
 dataset:
-  path: threat-model-tnf/cases
+  path: plugins/two-node/evals/threat-model-tnf/cases
   schema: |
     Each case directory contains:
     - input.yaml: YAML file with fields:
