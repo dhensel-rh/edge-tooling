@@ -1,14 +1,18 @@
 # Evaluation Configs
 
-Automated quality testing for two-node plugin skills using the
+Automated quality scoring for two-node plugin skills using the
 [agent-eval-harness](https://github.com/opendatahub-io/agent-eval-harness)
 Claude Code plugin.
+
+Evals measure skill quality on a spectrum (judges score 1-5, not
+pass/fail) — they catch regressions and drift, not exact-match
+correctness.
 
 ## Available Evals
 
 | Config | Skill | Modes Tested | Cases |
 |--------|-------|--------------|-------|
-| `cluster-diagnostic.yaml` | `two-node:cluster-diagnostic` | validate, recovery-guide | 5 |
+| `cluster-diagnostic.yaml` | `two-node:cluster-diagnostic` | validate, recovery-guide, game | 6 |
 | `threat-model-tnf.yaml` | `threat-model:tnf` | PR analysis | 5 |
 
 ## Running Locally
@@ -39,7 +43,7 @@ evals/
 └── <skill-name>/
     └── cases/
         └── case-NNN-<slug>/
-            ├── input.yaml      # Test input
+            ├── input.yaml      # Scenario input
             └── annotations.yaml # Expected outcomes
 ```
 
@@ -50,7 +54,7 @@ evals/
    /eval-analyze --skill <name> --config evals/<name>.yaml
    ```
 
-2. **Generate test cases** — creates `input.yaml` + `annotations.yaml` per case
+2. **Generate scenarios** — creates `input.yaml` + `annotations.yaml` per case
    ```
    /eval-dataset --config evals/<name>.yaml
    ```

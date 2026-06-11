@@ -7,6 +7,8 @@ execution:
   arguments: "{pr_input}"
   timeout: 600
   max_budget_usd: 8.0
+  env:
+    REPORT_DIR: "reports/"
 
 runner:
   type: claude-code
