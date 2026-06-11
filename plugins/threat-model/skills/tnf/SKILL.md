@@ -60,7 +60,7 @@ Before starting analysis, discover the workspace layout.
      - `$WORKSPACE/repos/two-node-toolbox/docs/`
      - `$WORKSPACE/docs/`
      - The current directory
-   - **Report output**: Write reports to the same directory where the threat model is found. If not found, write to `$WORKSPACE/reports/` (create if needed).
+   - **Report output**: If `$REPORT_DIR` is already set in the environment, use it directly. Otherwise, write reports to the same directory where the threat model is found. If not found, write to `$WORKSPACE/reports/` (create if needed).
    - **Findings tracker**: `$WORKSPACE/.claude/skills/threat-model/mitre-findings-tnf.md` — initialized from `$PLUGIN_DIR/references/mitre-findings-template.md` on first use.
 
 3. **Validate workspace**: Warn the user if:
