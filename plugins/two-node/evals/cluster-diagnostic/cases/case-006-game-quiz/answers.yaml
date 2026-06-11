@@ -1,0 +1,6 @@
+game_mode: quiz
+answer_correctly: true
+difficulty_guidance: >
+  Answer TNF knowledge questions accurately based on the
+  cluster-knowledge-base content. Pick the most correct option
+  for each question.

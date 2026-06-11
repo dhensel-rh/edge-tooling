@@ -14,7 +14,6 @@ runner:
     - plugins/two-node
 
 models:
-  skill: claude-opus-4-6
   judge: claude-opus-4-6
   hook: claude-sonnet-4-6
 
@@ -44,8 +43,7 @@ dataset:
       - 'should_reject' (bool): whether the procedure should be rejected (validate mode)
 
     Note: diagnose mode is excluded from eval because it requires live SSH
-    access to cluster nodes. Test validate and recovery-guide modes which
-    operate on text input against the knowledge base.
+    access to cluster nodes.
 
 inputs:
   tools:
@@ -85,9 +83,9 @@ judges:
 
   - name: severity_classification
     description: |
-      For validate mode: checks that BLOCKER/WARNING/INFO severity is correctly
-      assigned. Sequential shutdown and pcs standby must be BLOCKER. ForceOff
-      must be INFO or WARNING, not BLOCKER.
+      For validate mode: checks that expected BLOCKER findings are present
+      and procedures with blockers are rejected. Sequential shutdown and
+      pcs standby must be BLOCKER.
     if: "annotations.get('mode') == 'validate'"
     check: |
       conversation = outputs.get("conversation", "")
@@ -116,6 +114,30 @@ judges:
           return (False, f"Expected blockers {expected_blockers} not found in output")
 
       return (True, f"Severity classification correct. Blockers found: {found_blockers}")
+
+  - name: warning_classification
+    description: |
+      For validate mode: checks that expected WARNING findings are present
+      in the output. Verifies the skill identifies non-blocking issues.
+    if: "annotations.get('mode') == 'validate'"
+    check: |
+      conversation = outputs.get("conversation", "")
+      ann = outputs.get("annotations", {})
+      expected_warnings = ann.get("expected_warnings", [])
+
+      if not conversation:
+          return (False, "No conversation output found")
+
+      if not expected_warnings:
+          return (True, "No warnings expected for this case")
+
+      conv_lower = conversation.lower()
+      found = [w for w in expected_warnings if w.lower() in conv_lower]
+      missing = [w for w in expected_warnings if w.lower() not in conv_lower]
+
+      if missing:
+          return (False, f"Expected warnings not found: {missing}. Found: {found}")
+      return (True, f"All expected warnings found: {found}")
 
   - name: procedure_completeness
     description: |
@@ -171,12 +193,35 @@ judges:
           sec_lower = section.lower()
           if "pcs node standby" in sec_lower and "never" not in sec_lower and "do not" not in sec_lower:
               forbidden.append("pcs node standby recommended")
-          if "shutdown -h 1" in sec_lower and "never" not in sec_lower and "do not" not in sec_lower:
+          if "shutdown -h" in sec_lower and "never" not in sec_lower and "do not" not in sec_lower:
               forbidden.append("shutdown -h 1 recommended")
 
       if forbidden:
           return (False, f"Forbidden recommendations found: {forbidden}")
       return (True, "No forbidden procedures recommended")
+
+  - name: game_mode_scoring
+    description: |
+      For game mode: checks that the skill produces a score and a
+      final rating (Novice/Operator/Expert/TNF Master).
+    if: "annotations.get('mode') == 'game'"
+    check: |
+      conversation = outputs.get("conversation", "")
+
+      if not conversation:
+          return (False, "No conversation output found")
+
+      conv_lower = conversation.lower()
+      ratings = ["novice", "operator", "expert", "tnf master"]
+      found_rating = [r for r in ratings if r in conv_lower]
+
+      has_score = any(w in conv_lower for w in ["score", "points", "/"])
+
+      if not found_rating:
+          return (False, "No rating (Novice/Operator/Expert/TNF Master) found")
+      if not has_score:
+          return (False, "No score or points found in output")
+      return (True, f"Game completed with rating: {found_rating[0]}")
 
   - name: knowledge_base_accuracy
     description: |
@@ -210,9 +255,13 @@ thresholds:
     min_pass_rate: 1.0
   severity_classification:
     min_pass_rate: 0.8
+  warning_classification:
+    min_pass_rate: 0.8
   procedure_completeness:
     min_pass_rate: 0.8
   forbidden_recommendations:
+    min_pass_rate: 1.0
+  game_mode_scoring:
     min_pass_rate: 1.0
   knowledge_base_accuracy:
     min_mean: 3.5
