@@ -24,7 +24,10 @@ cd edge-tooling
 make setup-githooks
 ```
 
-`make setup-githooks` installs a pre-commit hook that runs markdownlint on staged `.md` files.
+`make setup-githooks` installs shared git hooks:
+
+- **pre-commit** — runs markdownlint on staged `.md` files
+- **pre-push** — optionally evaluates changed skills via the agent-eval-harness (`RUN_EVAL=1 git push`)
 
 Prerequisites: Node.js (for markdownlint), Python 3, Bash.
 

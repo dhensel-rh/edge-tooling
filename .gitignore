@@ -1,4 +1,5 @@
 .reports
+eval/runs/
 .mcp.json
 !plugins/**/.mcp.json
 .DS_Store

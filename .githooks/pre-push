@@ -1,0 +1,30 @@
+#!/usr/bin/bash
+set -euo pipefail
+# Git pre-push hook — runs skill eval for changed skills (non-blocking)
+#
+# Install shared hooks from the repo root: make setup-githooks
+# Enable eval on push: export RUN_EVAL=1
+
+if [[ "${RUN_EVAL:-0}" == "1" ]]; then
+    REPO_ROOT="$(git rev-parse --show-toplevel)"
+    EVAL_SHA="$(git rev-parse HEAD)"
+
+    # Extract owner/repo from origin remote (SSH or HTTPS)
+    EVAL_REPO="$(git remote get-url origin \
+        | sed -E 's#^(https?://github\.com/|git@github\.com:)##' \
+        | sed 's/\.git$//')"
+
+    EVAL_LOG="/tmp/skill-eval-${EVAL_SHA:0:8}.log"
+
+    echo "Skill eval will run in the background (log: ${EVAL_LOG})"
+
+    (
+        nohup env \
+            EVAL_SHA="${EVAL_SHA}" \
+            EVAL_REPO="${EVAL_REPO}" \
+            "${REPO_ROOT}/scripts/eval-skill.sh" \
+            > "${EVAL_LOG}" 2>&1
+    ) &
+    disown
+fi
+exit 0
