@@ -140,28 +140,35 @@ with local runs (option 1) for developer feedback.
 
 ## Dynamic Skill Discovery
 
-A single CI job handles all skills. No per-skill CI entries are needed.
+A single CI job handles skill evaluation. No per-skill CI entries are
+needed — but the current implementation evaluates **one skill per run**.
 
 1. **Trigger** — The presubmit uses
    `run_if_changed: ^plugins/.*/(skills|evals)` to fire on any
    skill-related file change in any plugin.
 
 2. **Discovery** — The setup script (`scripts/eval-setup-ci.sh`) diffs
-   `PULL_BASE_SHA...HEAD` to find which SKILL.md was added or modified
-   in the PR. It extracts the plugin name and skill name from the file
-   path (e.g., `plugins/two-node/skills/cluster-diagnostic/SKILL.md`
-   becomes `two-node:cluster-diagnostic`).
+   `PULL_BASE_SHA...HEAD` to find changed SKILL.md files in the PR.
+   If multiple skills changed, the script selects the **first one**
+   found (sorted by `git diff` output order). It extracts the plugin
+   name and skill name from the file path (e.g.,
+   `plugins/two-node/skills/cluster-diagnostic/SKILL.md` becomes
+   `two-node:cluster-diagnostic`).
 
-3. **Pipeline** — The setup script runs:
+3. **Pipeline** — The setup script runs the full pipeline for the
+   discovered skill:
    - `/eval-analyze` — reads the SKILL.md and generates scoring judges
    - `/eval-dataset` — generates fresh scenarios to evaluate against
 
 4. **Handoff** — The setup script outputs the generated eval config
-   path. The ref picks this up and runs `/eval-run` with it.
+   path on stdout. The ref picks this up and overrides `EVAL_CONFIG`,
+   then runs `/eval-run` with it.
 
-This scales automatically. Adding a new skill to any plugin requires
-zero CI configuration — the discovery finds it on the next PR that
-touches it.
+Adding a new skill to any plugin requires zero CI configuration — the
+discovery finds it on the next PR that touches it. If a PR modifies
+multiple skills, only the first is evaluated. This is a deliberate
+simplification for Level 1; multi-skill iteration can be added later
+by looping in the setup script or spawning parallel jobs.
 
 ## Judges and Scoring
 
@@ -370,7 +377,7 @@ graduate skills to Level 2 as they mature.
 | Setup script | `scripts/eval-setup-ci.sh` | Dynamic discovery + judge/case generation |
 | Shared ref | `openshift-claude-agent-eval` (step registry) | Plugin install, `/eval-run`, artifacts, JUnit |
 | Local script | `scripts/eval-skill.sh` | Pre-push hook for local eval runs |
-| Strategy doc | `docs/eval-ci-strategy.md` | This document |
+| Strategy doc | `docs/agent-eval-harness/ci-strategy.md` | This document |
 
 ## Related PRs
 
