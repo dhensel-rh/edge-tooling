@@ -30,7 +30,7 @@ DIFF_OUTPUT=$(git diff --name-only "${PULL_BASE_SHA}...HEAD") || {
     exit 1
 }
 
-SKILL_FILE=$(echo "${DIFF_OUTPUT}" | grep '/skills/.*SKILL\.md$' | head -1 || true)
+SKILL_FILE=$(echo "${DIFF_OUTPUT}" | grep '^plugins/[^/]*/skills/[^/]*/SKILL\.md$' | head -1 || true)
 
 if [[ -z "${SKILL_FILE}" ]]; then
     log "No skill files changed, nothing to evaluate."
