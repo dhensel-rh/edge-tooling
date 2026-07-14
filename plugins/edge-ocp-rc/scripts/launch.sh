@@ -8,7 +8,7 @@ GCSWEB_BASE="gcsweb-ci.apps.ci.l2s4.p1.openshiftapps.com/gcs"
 SIPPY_API="https://sippy.dptools.openshift.org/api/jobs"
 IMAGE_BASE="quay.io/openshift-release-dev/ocp-release"
 ARCH="x86_64"
-DELAY=10
+DELAY="${DELAY:-10}"
 
 # Sippy search terms per topology
 sippy_filter_for() {
@@ -37,18 +37,18 @@ detect_release() {
         return
     fi
 
+    local -a releases=()
     for d in "$SCRIPT_DIR"/jobs/*/; do
-        [[ ! -d "$d" ]] && continue
-        for f in "$d"/*.txt; do
-            [[ ! -f "$f" ]] && continue
-            local from_jobs
-            from_jobs=$(awk -F'nightly-' '/nightly-/{split($2,a,"[^0-9.]"); print a[1]; exit}' "$f")
-            if [[ -n "$from_jobs" ]]; then
-                echo "$from_jobs"
-                return
-            fi
-        done
+        [[ -d "$d" ]] && releases+=("$(basename "$d")")
     done
+
+    if [[ ${#releases[@]} -eq 1 ]]; then
+        echo "${releases[0]}"
+        return
+    elif [[ ${#releases[@]} -gt 1 ]]; then
+        echo "Error: multiple releases found (${releases[*]}). Provide an explicit version." >&2
+        return 1
+    fi
 
     echo ""
 }
@@ -202,8 +202,8 @@ if $REFRESH; then
     SIPPY_RESPONSE=$(curl --fail --silent --show-error --connect-timeout 5 --max-time 30 \
          "${SIPPY_API}?release=${OCP_RELEASE}&filter=${ENCODED_FILTER}&period=default&sortField=name&sort=asc")
 
-    # Clear existing files before writing
-    rm -f "$JOB_FILE" "$JOB_FILE_Z" "$JOB_FILE_Y"
+    tmp_file=$(mktemp) tmp_z=$(mktemp) tmp_y=$(mktemp)
+    trap 'rm -f "$tmp_file" "$tmp_z" "$tmp_y"' EXIT
 
     # Sort jobs into separate files by type
     echo "$SIPPY_RESPONSE" \
@@ -212,13 +212,16 @@ if $REFRESH; then
         | sort \
         | while IFS= read -r name; do
             if [[ "$name" == *"upgrade-from-stable"* ]]; then
-                echo "$name" >> "$JOB_FILE_Y"
+                echo "$name" >> "$tmp_y"
             elif [[ "$name" == *"-upgrade"* ]]; then
-                echo "$name" >> "$JOB_FILE_Z"
+                echo "$name" >> "$tmp_z"
             else
-                echo "$name" >> "$JOB_FILE"
+                echo "$name" >> "$tmp_file"
             fi
         done
+
+    mv "$tmp_file" "$JOB_FILE"; mv "$tmp_z" "$JOB_FILE_Z"; mv "$tmp_y" "$JOB_FILE_Y"
+    trap - EXIT
 
     JOB_COUNT=$(wc -l < "$JOB_FILE" 2>/dev/null || echo 0)
     Z_COUNT=$(wc -l < "$JOB_FILE_Z" 2>/dev/null || echo 0)

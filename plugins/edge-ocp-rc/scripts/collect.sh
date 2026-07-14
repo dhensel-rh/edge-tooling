@@ -37,7 +37,8 @@ for release in "${RELEASES[@]}"; do
         job_file_z="$out_dir/${topo}-z-stream.txt"
         job_file_y="$out_dir/${topo}-y-stream.txt"
 
-        rm -f "$job_file" "$job_file_z" "$job_file_y"
+        tmp_file=$(mktemp) tmp_z=$(mktemp) tmp_y=$(mktemp)
+        trap 'rm -f "$tmp_file" "$tmp_z" "$tmp_y"' EXIT
 
         echo "$response" \
             | jq -r '.[] | select(.current_runs > 0) | .name' 2>/dev/null \
@@ -45,13 +46,16 @@ for release in "${RELEASES[@]}"; do
             | sort \
             | while IFS= read -r name; do
                 if [[ "$name" == *"upgrade-from-stable"* ]]; then
-                    echo "$name" >> "$job_file_y"
+                    echo "$name" >> "$tmp_y"
                 elif [[ "$name" == *"-upgrade"* ]]; then
-                    echo "$name" >> "$job_file_z"
+                    echo "$name" >> "$tmp_z"
                 else
-                    echo "$name" >> "$job_file"
+                    echo "$name" >> "$tmp_file"
                 fi
             done
+
+        mv "$tmp_file" "$job_file"; mv "$tmp_z" "$job_file_z"; mv "$tmp_y" "$job_file_y"
+        trap - EXIT
 
         regular=$([[ -f "$job_file" ]] && wc -l < "$job_file" || echo 0)
         z_count=$([[ -f "$job_file_z" ]] && wc -l < "$job_file_z" || echo 0)

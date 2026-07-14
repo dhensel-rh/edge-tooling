@@ -181,7 +181,7 @@ scripts/launch.sh tnf 4.22.0-rc.0 --job all
 scripts/launch.sh tna 4.22.0-rc.0 --initial 4.21.0 --job all
 ```
 
-Jobs are launched sequentially with a 30-second delay between each to avoid rate limiting.
+Jobs are launched sequentially with a 10-second delay between each to avoid rate limiting. Override with `DELAY=30 scripts/launch.sh ...` if Gangway is throttling.
 
 ## status.sh
 
