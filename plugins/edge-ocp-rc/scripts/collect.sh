@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SIPPY_API="https://sippy.dptools.openshift.org/api/jobs"
 
 RELEASES=("4.22" "4.23" "5.0")
-TOPOLOGIES=("tnf" "tna")
+TOPOLOGIES=("tnf" "tna" "sno")
 
 sippy_filter_for() {
     case "$1" in
