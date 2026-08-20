@@ -84,7 +84,7 @@ Then enable whichever plugins you need. See the [plugin README](plugins/README.m
 
 | Resource | What it covers |
 |----------|---------------|
-| [CLAUDE.md](CLAUDE.md) | Repo overview, tool routing, component-level guides |
+| [AGENTS.md](AGENTS.md) | Repo overview, tool routing, component-level guides |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution model, code standards, architectural patterns |
 | [docs/claude/workflows.md](docs/claude/workflows.md) | Deployment walkthroughs and Component Readiness reports |
 | [docs/claude/prerequisites.md](docs/claude/prerequisites.md) | Required credentials and tools |
