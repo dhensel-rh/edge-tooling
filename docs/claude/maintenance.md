@@ -21,7 +21,7 @@ This repository includes a Claude Code hook that automatically detects new tool 
 
 1. Detect the undocumented tool
 2. Notify the user
-3. Offer to update this CLAUDE.md file
+3. Offer to update the AGENTS.md file
 
 **Hook location:** `.claude/hooks/detect-new-tools.sh`
 

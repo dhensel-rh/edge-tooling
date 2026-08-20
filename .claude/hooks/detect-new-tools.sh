@@ -19,7 +19,7 @@ if [ -z "$CWD" ]; then
     CWD="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fi
 
-# Documented tools in CLAUDE.md (update this list when adding new tools)
+# Documented tools in AGENTS.md (update this list when adding new tools)
 DOCUMENTED_TOOLS=(
     "two-node-toolbox"
     "ec2-deploy"
@@ -97,14 +97,14 @@ if [ ${#NEW_TOOLS[@]} -gt 0 ]; then
 
     # Display notification to user via stderr
     echo "⚠️  New tool directories detected: ${TOOL_LIST}" >&2
-    echo "   Not documented in CLAUDE.md - ask Claude to update it" >&2
+    echo "   Not documented in AGENTS.md - ask Claude to update it" >&2
 
     # Return context for Claude to see and act on
     cat <<EOF
 {
   "hookSpecificOutput": {
     "hookEventName": "SessionStart",
-    "additionalContext": "NEW TOOLS DETECTED: The following tool directories exist but are not documented in the root CLAUDE.md file: ${TOOL_LIST}. Please notify the user and offer to update the CLAUDE.md file to include documentation for these new tools."
+    "additionalContext": "NEW TOOLS DETECTED: The following tool directories exist but are not documented in the root AGENTS.md file: ${TOOL_LIST}. Please notify the user and offer to update the AGENTS.md file to include documentation for these new tools."
   }
 }
 EOF

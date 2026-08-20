@@ -87,7 +87,7 @@ chore(submodule): update two-node-toolbox (abc1234 -> def5678, 5 commits)
 
 1. Create a directory at repo root with a `Makefile` or `README.md`. CI helper CLIs go under `ci-tooling/<name>/`.
 2. Add a `README.md` documenting purpose, prerequisites, and usage
-3. Update the tool table in root `CLAUDE.md` and the root `README.md`
+3. Update the tool table in root `AGENTS.md` and the root `README.md`
 4. Add the directory name to the `DOCUMENTED_TOOLS` array in `.claude/hooks/detect-new-tools.sh` (use `ci-tooling/<name>` for nested CI tools)
 5. Commit: `feat(<tool-name>): add <tool-name>`
 
@@ -200,9 +200,9 @@ For complex workflows, skills orchestrate agents in phases:
 
 This repository uses Claude Code extensively. Contributors (human and agent) should maintain the following infrastructure.
 
-### CLAUDE.md Files
+### AGENTS.md / CLAUDE.md Files
 
-- **Root CLAUDE.md**: repository overview, tool table, common workflows, prerequisites
+- **Root AGENTS.md** (CLAUDE.md is a symlink to it): repository overview, tool table, common workflows, prerequisites
 - **Component CLAUDE.md**: per-tool guidance scoped to that directory
 - **When to update**: adding/removing tools, changing workflows, modifying prerequisites
 - **Style**: concise, intent-focused, no filler (see `global-claude.md`)
