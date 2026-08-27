@@ -23,8 +23,20 @@ fi
 echo "Stopping captures from ${PID_FILE}"
 while read -r p; do
     [[ -z "$p" ]] && continue
-    if kill "$p" 2>/dev/null; then
-        echo "  killed PID $p"
+    # Kill the process group so children (sleep, oc, ssh) die immediately
+    # instead of leaving bash blocked until the foreground child exits.
+    if kill -- "-$p" 2>/dev/null || kill "$p" 2>/dev/null; then
+        echo "  killed PID $p (pgid)"
+    fi
+done < "${PID_FILE}"
+
+sleep 2
+
+while read -r p; do
+    [[ -z "$p" ]] && continue
+    if kill -0 "$p" 2>/dev/null; then
+        kill -9 -- "-$p" 2>/dev/null || kill -9 "$p" 2>/dev/null || true
+        echo "  SIGKILL PID $p"
     fi
 done < "${PID_FILE}"
 echo "Done."

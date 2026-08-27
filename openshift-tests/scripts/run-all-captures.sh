@@ -67,51 +67,51 @@ echo ""
 : > "${PID_FILE}"
 
 # 1) virsh list on hypervisor
-"${SCRIPT_DIR}/capture-virsh-status.sh" >> "${LOG_DIR}/virsh-${TIMESTAMP}.out" 2>&1 &
+setsid "${SCRIPT_DIR}/capture-virsh-status.sh" >> "${LOG_DIR}/virsh-${TIMESTAMP}.out" 2>&1 &
 echo $! >> "${PID_FILE}"
 echo "  virsh status     -> ${LOG_DIR}/virsh-${TIMESTAMP}.log (PID $!)"
 
 # 2) Pacemaker log master-0
-"${SCRIPT_DIR}/capture-pacemaker.sh" master-0 >> "${LOG_DIR}/pacemaker-master-0-${TIMESTAMP}.out" 2>&1 &
+setsid "${SCRIPT_DIR}/capture-pacemaker.sh" master-0 >> "${LOG_DIR}/pacemaker-master-0-${TIMESTAMP}.out" 2>&1 &
 echo $! >> "${PID_FILE}"
 echo "  pacemaker master-0 -> ${LOG_DIR}/pacemaker-master-0-${TIMESTAMP}.log (PID $!)"
 
 # 3) Pacemaker log master-1 (reconnects after node comes back)
-"${SCRIPT_DIR}/capture-pacemaker.sh" master-1 >> "${LOG_DIR}/pacemaker-master-1-${TIMESTAMP}.out" 2>&1 &
+setsid "${SCRIPT_DIR}/capture-pacemaker.sh" master-1 >> "${LOG_DIR}/pacemaker-master-1-${TIMESTAMP}.out" 2>&1 &
 echo $! >> "${PID_FILE}"
 echo "  pacemaker master-1 -> ${LOG_DIR}/pacemaker-master-1-${TIMESTAMP}.log (PID $!)"
 
 # 4) Corosync log master-0
-"${SCRIPT_DIR}/capture-corosync.sh" master-0 >> "${LOG_DIR}/corosync-master-0-${TIMESTAMP}.out" 2>&1 &
+setsid "${SCRIPT_DIR}/capture-corosync.sh" master-0 >> "${LOG_DIR}/corosync-master-0-${TIMESTAMP}.out" 2>&1 &
 echo $! >> "${PID_FILE}"
 echo "  corosync master-0 -> ${LOG_DIR}/corosync-master-0-${TIMESTAMP}.log (PID $!)"
 
 # 5) Corosync log master-1
-"${SCRIPT_DIR}/capture-corosync.sh" master-1 >> "${LOG_DIR}/corosync-master-1-${TIMESTAMP}.out" 2>&1 &
+setsid "${SCRIPT_DIR}/capture-corosync.sh" master-1 >> "${LOG_DIR}/corosync-master-1-${TIMESTAMP}.out" 2>&1 &
 echo $! >> "${PID_FILE}"
 echo "  corosync master-1 -> ${LOG_DIR}/corosync-master-1-${TIMESTAMP}.log (PID $!)"
 
 # 6) OVN chassis / host OVS paper trail (API + SSH to masters; optional OVN-K log scrape on interval)
-bash "${SCRIPT_DIR}/capture-ovn-chassis-trace.sh" >> "${LOG_DIR}/ovn-chassis-trace-${TIMESTAMP}.log" 2>&1 &
+setsid bash "${SCRIPT_DIR}/capture-ovn-chassis-trace.sh" >> "${LOG_DIR}/ovn-chassis-trace-${TIMESTAMP}.log" 2>&1 &
 echo $! >> "${PID_FILE}"
 echo "  ovn-chassis-trace -> ${LOG_DIR}/ovn-chassis-trace-${TIMESTAMP}.log (PID $!) [poll=${OVN_CHASSIS_POLL_INTERVAL_SEC:-2}s sb_every=${OVN_CHASSIS_SB_EVERY:-2} virsh_every=${OVN_CHASSIS_VIRSH_EVERY:-10} … see script header]"
 
 # 7) disruption path evidence: debug/fencing events + ip6tables snapshots
-bash "${SCRIPT_DIR}/capture-disruption-evidence.sh" >> "${LOG_DIR}/disruption-evidence-${TIMESTAMP}.log" 2>&1 &
+setsid bash "${SCRIPT_DIR}/capture-disruption-evidence.sh" >> "${LOG_DIR}/disruption-evidence-${TIMESTAMP}.log" 2>&1 &
 echo $! >> "${PID_FILE}"
 echo "  disruption-evidence -> ${LOG_DIR}/disruption-evidence-${TIMESTAMP}.log (PID $!) [poll=${DISRUPTION_EVIDENCE_POLL_SEC:-10}s]"
 
 # 4b) OVN-K follow logs (continuous, server timestamps) — correlate with ovn-chassis-trace samples
 if [[ -n "${KUBECONFIG:-}" ]]; then
-    bash "${SCRIPT_DIR}/capture-ovn-kubernetes-follow-logs.sh" >> "${LOG_DIR}/ovn-k-node-follow-${TIMESTAMP}.log" 2>&1 &
+    setsid bash "${SCRIPT_DIR}/capture-ovn-kubernetes-follow-logs.sh" >> "${LOG_DIR}/ovn-k-node-follow-${TIMESTAMP}.log" 2>&1 &
     echo $! >> "${PID_FILE}"
     echo "  ovn-k-node-follow -> ${LOG_DIR}/ovn-k-node-follow-${TIMESTAMP}.log (PID $!)"
 
-    bash "${SCRIPT_DIR}/capture-ovn-control-plane-follow-logs.sh" >> "${LOG_DIR}/ovn-k-cp-follow-${TIMESTAMP}.log" 2>&1 &
+    setsid bash "${SCRIPT_DIR}/capture-ovn-control-plane-follow-logs.sh" >> "${LOG_DIR}/ovn-k-cp-follow-${TIMESTAMP}.log" 2>&1 &
     echo $! >> "${PID_FILE}"
     echo "  ovn-k-cp-follow -> ${LOG_DIR}/ovn-k-cp-follow-${TIMESTAMP}.log (PID $!)"
 
-    bash "${SCRIPT_DIR}/capture-network-node-identity-follow-logs.sh" >> "${LOG_DIR}/nnid-follow-${TIMESTAMP}.log" 2>&1 &
+    setsid bash "${SCRIPT_DIR}/capture-network-node-identity-follow-logs.sh" >> "${LOG_DIR}/nnid-follow-${TIMESTAMP}.log" 2>&1 &
     echo $! >> "${PID_FILE}"
     echo "  nnid-follow -> ${LOG_DIR}/nnid-follow-${TIMESTAMP}.log (PID $!) [exits if no network-node-identity deployment]"
 else
@@ -134,7 +134,7 @@ if [[ -n "${KUBECONFIG:-}" ]]; then
     fi
 fi
 if [[ -n "${BMO_FOUND}" ]]; then
-    "${SCRIPT_DIR}/capture-baremetal-operator.sh" >> "${LOG_DIR}/baremetal-operator-${TIMESTAMP}.out" 2>&1 &
+    setsid "${SCRIPT_DIR}/capture-baremetal-operator.sh" >> "${LOG_DIR}/baremetal-operator-${TIMESTAMP}.out" 2>&1 &
     echo $! >> "${PID_FILE}"
     echo "  baremetal-operator -> ${LOG_DIR}/baremetal-operator-${TIMESTAMP}.log (PID $!) [${BMO_NAMESPACE}/${BMO_DEPLOY}]"
 else
@@ -147,7 +147,7 @@ fi
 
 # 6) CEO (optional, same as capture-ceo-logs.sh)
 if [[ -n "${KUBECONFIG:-}" ]] && oc get deployment/etcd-operator -n openshift-etcd-operator &>/dev/null; then
-    oc logs -n openshift-etcd-operator deployment/etcd-operator -f --timestamps 2>&1 | tee -a "${LOG_DIR}/ceo-${TIMESTAMP}.log" >> "${LOG_DIR}/ceo-${TIMESTAMP}.out" 2>&1 &
+    setsid bash -c "oc logs -n openshift-etcd-operator deployment/etcd-operator -f --timestamps 2>&1 | tee -a '${LOG_DIR}/ceo-${TIMESTAMP}.log'" >> "${LOG_DIR}/ceo-${TIMESTAMP}.out" 2>&1 &
     echo $! >> "${PID_FILE}"
     echo "  CEO logs        -> ${LOG_DIR}/ceo-${TIMESTAMP}.log (PID $!)"
 else
@@ -156,7 +156,7 @@ fi
 
 # 7) Machine API / CAPI controller logs (Machine delete, finalizers, provider)
 if [[ -n "${KUBECONFIG:-}" ]]; then
-    "${SCRIPT_DIR}/capture-machine-api.sh" >> "${LOG_DIR}/machine-api-streams-${TIMESTAMP}.out" 2>&1 &
+    setsid "${SCRIPT_DIR}/capture-machine-api.sh" >> "${LOG_DIR}/machine-api-streams-${TIMESTAMP}.out" 2>&1 &
     echo $! >> "${PID_FILE}"
     echo "  machine-api     -> ${LOG_DIR}/machine-api-*-${TIMESTAMP}.log (PID $!) [MAO / mac-controllers / CBO / cluster-api if present]"
 else
@@ -165,7 +165,7 @@ fi
 
 # 8) Periodic Machine / BMH / events snapshots
 if [[ -n "${KUBECONFIG:-}" ]]; then
-    bash "${SCRIPT_DIR}/capture-machine-api-snapshot.sh" >> "${LOG_DIR}/machine-api-snapshot-${TIMESTAMP}.log" 2>&1 &
+    setsid bash "${SCRIPT_DIR}/capture-machine-api-snapshot.sh" >> "${LOG_DIR}/machine-api-snapshot-${TIMESTAMP}.log" 2>&1 &
     echo $! >> "${PID_FILE}"
     echo "  machine-api-snapshot -> ${LOG_DIR}/machine-api-snapshot-${TIMESTAMP}.log (PID $!) [poll=${MACHINE_API_SNAPSHOT_POLL_SEC:-60}s]"
 else
@@ -174,7 +174,7 @@ fi
 
 # 9) TNF fencing job pod logs (direct job stdout/stderr in openshift-etcd)
 if [[ -n "${KUBECONFIG:-}" ]]; then
-    bash "${SCRIPT_DIR}/capture-fencing-job.sh" >> "${LOG_DIR}/fencing-job-streams-${TIMESTAMP}.out" 2>&1 &
+    setsid bash "${SCRIPT_DIR}/capture-fencing-job.sh" >> "${LOG_DIR}/fencing-job-streams-${TIMESTAMP}.out" 2>&1 &
     echo $! >> "${PID_FILE}"
     echo "  tnf-fencing-job  -> ${LOG_DIR}/tnf-fencing-job-<pod>-${TIMESTAMP}.log (PID $!) [poll=${FENCING_POLL_SEC:-10}s]"
 else
@@ -183,7 +183,7 @@ fi
 
 # 10) TNF update-setup job monitoring (job status, pod creation, CEO errors)
 if [[ -n "${KUBECONFIG:-}" ]]; then
-    bash "${SCRIPT_DIR}/capture-update-setup-job.sh" >> "${LOG_DIR}/update-setup-job-${TIMESTAMP}.out" 2>&1 &
+    setsid bash "${SCRIPT_DIR}/capture-update-setup-job.sh" >> "${LOG_DIR}/update-setup-job-${TIMESTAMP}.out" 2>&1 &
     echo $! >> "${PID_FILE}"
     echo "  update-setup-job -> ${LOG_DIR}/update-setup-job-${TIMESTAMP}.log (PID $!) [poll=${UPDATE_SETUP_POLL_SEC:-10}s]"
 else
