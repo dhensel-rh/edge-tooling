@@ -10,7 +10,11 @@ SCRATCH_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LOG_DIR="${SCRATCH_ROOT}/runs"
 
 if [[ -n "${1:-}" ]]; then
-    PID_FILE="${LOG_DIR}/capture-pids-${1}.txt"
+    if [[ -f "${1}" ]]; then
+        PID_FILE="${1}"
+    else
+        PID_FILE="${LOG_DIR}/capture-pids-${1}.txt"
+    fi
 else
     PID_FILE=$(ls -t "${LOG_DIR}"/capture-pids-*.txt 2>/dev/null | head -1)
 fi
