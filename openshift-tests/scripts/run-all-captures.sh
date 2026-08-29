@@ -35,7 +35,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRATCH_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LOG_DIR="${CAPTURE_LOG_DIR:-${SCRATCH_ROOT}/runs}"
 mkdir -p "${LOG_DIR}"
-TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+TIMESTAMP="${CAPTURE_TIMESTAMP:-$(date -u +%Y%m%d-%H%M%S)}"
 PID_FILE="${LOG_DIR}/capture-pids-${TIMESTAMP}.txt"
 
 # Source proxy.env first so we can default HYPERVISOR_IP from EC2_PUBLIC_IP (same as run-test.sh)

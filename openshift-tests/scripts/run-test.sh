@@ -412,10 +412,7 @@ else
         log "Test completed: ${result}" | tee -a "${console_log}"
 
         if [[ -n "${cap_pid_file}" ]] && [[ -f "${cap_pid_file}" ]]; then
-            while read -r p; do
-                [[ -z "${p}" ]] && continue
-                kill "${p}" 2>/dev/null || true
-            done < "${cap_pid_file}"
+            "${SCRIPT_DIR}/stop-all-captures.sh" "${cap_pid_file}" >> "${run_dir}/captures/stop-captures.log" 2>&1
             log "Captures stopped for run." | tee -a "${console_log}"
         fi
 
