@@ -1,244 +1,369 @@
 #!/usr/bin/env bash
 #
-# request_art_builds.sh - Phase 0 post-check actions for one MicroShift z-stream.
-#
-#   1. Create the ART request ticket from template ART-11857
-#   2. Create the QE release testing ticket from template USHIFT-6945 (parent USHIFT-4531)
-#   3. Label both tickets "microshift-X.Y.Z" and link them (QE ticket is blocked by ART ticket)
-#   4. Post the build request to #forum-ocp-art
-#
-# Re-running for the same version is safe: existing tickets (found by label) are reused,
-# an existing link is not duplicated, and the Slack message is only posted when a new
-# ART ticket is created.
-#
-# Before creating a ticket, also checks for a similar-titled ticket missing the release
-# label (e.g. one created by hand) and refuses to proceed if it finds one, to avoid
-# creating a duplicate. Pass --force to create anyway once you've confirmed it's needed.
+# request_art_builds.sh - MicroShift z-stream build & QE release coordinator.
 #
 # Usage:
-#   request_art_builds.sh <X.Y.Z> <ART_DUE_DATE> <RELEASE_DATE> [--dry-run] [--force]
-#   Dates are YYYY-MM-DD. Example:
-#   request_art_builds.sh 4.21.12 2026-10-09 2026-10-15 --dry-run
+#   request_art_builds.sh <X.Y.Z> <ART_DUE_DATE> <RELEASE_DATE> --reason <TEXT> [FLAGS]
 #
-# Environment:
-#   JIRA_USER_EMAIL, JIRA_API_TOKEN   required (also for --dry-run, which reads the templates)
-#   SLACK_WEBHOOK_URL                 required unless --dry-run
-#   JIRA_BASE_URL                     default https://redhat.atlassian.net
-#   SLACK_ART_GROUP_ID                Slack user-group ID for @release-artists (S...)
-#   SLACK_CC_USER_IDS                 space-separated Slack member IDs to cc (U...), added
-#                                      on top of DEFAULT_CC_USER_IDS below (duplicates skipped)
-#   LINK_TYPE                         default "Blocks" (use "Relates" if Blocks doesn't exist)
-#
-# Output: on success prints "<ART_KEY> <QE_KEY>" to stdout (logs go to stderr).
+# Flags:
+#   --reason <TEXT>    Mandatory explanation (CVE, cadence, etc.)
+#   --dry-run          Run preflight and print payloads without writing
+#   --force            Bypass similarity duplicate warning
+#   --resend-slack     Send Slack notification even if ART ticket was reused
+#   -h, --help         Show usage
 
 set -euo pipefail
 
-DRY_RUN=false
-FORCE=false
-ARGS=()
-for a in "$@"; do
-  case "${a}" in
-    --dry-run) DRY_RUN=true ;;
-    --force) FORCE=true ;;
-    -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
-    *) ARGS+=("${a}") ;;
-  esac
-done
-
-VERSION="${ARGS[0]:-}"
-ART_DUE="${ARGS[1]:-}"
-RELEASE_DATE="${ARGS[2]:-}"
-
-die() { echo "ERROR: $*" >&2; exit 1; }
-log() { echo "==> $*" >&2; }
-
-[[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "version must look like X.Y.Z (got '${VERSION}')"
-for d in "${ART_DUE}" "${RELEASE_DATE}"; do
-  [[ "${d}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || die "dates must be YYYY-MM-DD (got '${d}')"
-done
-command -v jq >/dev/null || die "jq is required"
-: "${JIRA_USER_EMAIL:?JIRA_USER_EMAIL is not set}"
-: "${JIRA_API_TOKEN:?JIRA_API_TOKEN is not set}"
-if ! ${DRY_RUN}; then
-  : "${SLACK_WEBHOOK_URL:?SLACK_WEBHOOK_URL is not set}"
-fi
-
+# --- Config & Defaults ---
 JIRA_BASE_URL="${JIRA_BASE_URL:-https://redhat.atlassian.net}"
-LINK_TYPE="${LINK_TYPE:-Blocks}"
+JIRA_BASE_URL="${JIRA_BASE_URL%/}"
+LINK_TYPE_NAME="Blocks"
 ART_TEMPLATE="ART-11857"
 QE_TEMPLATE="USHIFT-6945"
 QE_PARENT="USHIFT-4531"
 ART_LABEL="art:microshift:manual-zstream"
-RELEASE_LABEL="microshift-${VERSION}"
-# Pablo Acevedo, Rama Kasturi, Alejandro Gullón, Tami Love
 DEFAULT_CC_USER_IDS="U026BG77CDD U028C6K6AH5 U01LDR1DY5V USCCU4Z0W"
 
-# "Oct 15" style dates (GNU date); falls back to the ISO date on macOS/BSD.
-human_date() { date -d "$1" '+%b %-d' 2>/dev/null || echo "$1"; }
+DRY_RUN=false
+FORCE=false
+RESEND_SLACK=false
+REASON=""
+ARGS=()
+
+# --- Helpers ---
+die() { echo "ERROR: $*" >&2; exit 1; }
+log() { echo "==> $*" >&2; }
+
+# Bash 3.2 regex patterns (must be unquoted in [[ =~ $pat ]])
+RE_SEMVER='^[0-9]+\.[0-9]+\.[0-9]+$'
+RE_ISODATE='^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+RE_JIRAKEY='^[A-Z0-9]+-[0-9]+$'
+
+# --- Argument Parsing ---
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run) DRY_RUN=true; shift ;;
+    --force) FORCE=true; shift ;;
+    --resend-slack) RESEND_SLACK=true; shift ;;
+    --reason)
+      [[ $# -ge 2 && "$2" != -* ]] || die "--reason requires a non-option argument"
+      REASON="$2"; shift 2 ;;
+    --reason=*) REASON="${1#*=}"; shift ;;
+    -h|--help) sed -n '3,13p' "$0"; exit 0 ;;
+    -*) die "Unknown option '$1'" ;;
+    *) ARGS+=("$1"); shift ;;
+  esac
+done
+
+[[ ${#ARGS[@]} -eq 3 ]] || die "Expected 3 args: <VERSION> <ART_DUE_DATE> <RELEASE_DATE>"
+VERSION="${ARGS[0]}"
+ART_DUE="${ARGS[1]}"
+RELEASE_DATE="${ARGS[2]}"
+RELEASE_LABEL="microshift-${VERSION}"
+
+# Validate reason & formats
+REASON="$(echo "${REASON}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+[[ -n "${REASON}" ]] || die "--reason must not be empty or whitespace-only"
+[[ "${VERSION}" =~ ${RE_SEMVER} ]] || die "Version must be X.Y.Z (got '${VERSION}')"
+[[ "${ART_DUE}" =~ ${RE_ISODATE} ]] || die "ART_DUE must be YYYY-MM-DD (got '${ART_DUE}')"
+[[ "${RELEASE_DATE}" =~ ${RE_ISODATE} ]] || die "RELEASE_DATE must be YYYY-MM-DD (got '${RELEASE_DATE}')"
+
+# Date round-trip & chronological validation (GNU & BSD date portable)
+valid_calendar_date() {
+  local in="$1" out=""
+  out="$(date -d "${in}" '+%Y-%m-%d' 2>/dev/null || date -j -f "%Y-%m-%d" "${in}" '+%Y-%m-%d' 2>/dev/null || true)"
+  [[ "${out}" == "${in}" ]]
+}
+valid_calendar_date "${ART_DUE}" || die "ART_DUE is not a valid calendar date: ${ART_DUE}"
+valid_calendar_date "${RELEASE_DATE}" || die "RELEASE_DATE is not a valid calendar date: ${RELEASE_DATE}"
+[[ "${ART_DUE}" > "${RELEASE_DATE}" ]] && die "ART_DUE (${ART_DUE}) cannot be after RELEASE_DATE (${RELEASE_DATE})"
+
+human_date() { date -d "$1" '+%b %-d' 2>/dev/null || date -j -f "%Y-%m-%d" "$1" '+%b %e' 2>/dev/null || echo "$1"; }
 ART_DUE_HUMAN="$(human_date "${ART_DUE}")"
 RELEASE_HUMAN="$(human_date "${RELEASE_DATE}")"
 
-# jira METHOD PATH [JSON_BODY] -> response body on stdout; exits on non-2xx
+# Environment checks
+command -v jq >/dev/null || die "jq is required"
+command -v curl >/dev/null || die "curl is required"
+: "${JIRA_USER_EMAIL:?JIRA_USER_EMAIL is required}"
+: "${JIRA_API_TOKEN:?JIRA_API_TOKEN is required}"
+${DRY_RUN} || : "${SLACK_WEBHOOK_URL:?SLACK_WEBHOOK_URL is required when not running with --dry-run}"
+
+# Atomic directory lock (trap installed only after successful acquisition)
+LOCKDIR="${TMPDIR:-/tmp}/request_art_builds_${VERSION}.lock"
+mkdir "${LOCKDIR}" 2>/dev/null || die "Cannot acquire lock: ${LOCKDIR} (another run active or stale lock)"
+cleanup_lock() { rmdir "${LOCKDIR}" 2>/dev/null || true; }
+trap cleanup_lock EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# --- Jira API Client ---
 jira() {
   local method="$1" path="$2" body="${3:-}" out code
-  out="$(mktemp)"
+  out="$(mktemp "${TMPDIR:-/tmp}/jira_res.XXXXXX")"
   local args=(-sS -o "${out}" -w '%{http_code}' -X "${method}"
-              -u "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}"
-              -H 'Accept: application/json' -H 'Content-Type: application/json')
-  if [[ -n "${body}" ]]; then args+=(--data "${body}"); fi
-  code="$(curl "${args[@]}" "${JIRA_BASE_URL}${path}")" || { rm -f "${out}"; die "curl failed: ${method} ${path}"; }
+    --connect-timeout 10 --max-time 30
+    -u "${JIRA_USER_EMAIL}:${JIRA_API_TOKEN}"
+    -H 'Accept: application/json' -H 'Content-Type: application/json')
+  [[ -n "${body}" ]] && args+=(--data "${body}")
+
+  code="$(curl "${args[@]}" "${JIRA_BASE_URL}${path}")" || {
+    rm -f "${out}"
+    if [[ "${method}" == "POST" || "${method}" == "PUT" ]]; then
+      die "Network failure during ${method} ${path}; mutation outcome unknown. Reconcile manually before retrying."
+    fi
+    die "curl network failure: ${method} ${path}"
+  }
+
   if [[ "${code}" != 2* ]]; then
-    echo "Jira ${method} ${path} failed (HTTP ${code}):" >&2
+    echo "Jira API ${method} ${path} failed (HTTP ${code}):" >&2
     cat "${out}" >&2; echo >&2
-    rm -f "${out}"; exit 1
+    rm -f "${out}"; return 1
   fi
   cat "${out}"; rm -f "${out}"
 }
 
-# find_by_label PROJECT -> newest key in PROJECT with the release label, or empty
-find_by_label() {
-  local jql
-  jql="project = $1 AND labels = \"${RELEASE_LABEL}\" ORDER BY created DESC"
-  jira GET "/rest/api/3/search/jql?fields=key&maxResults=1&jql=$(jq -rn --arg q "${jql}" '$q|@uri')" \
-    | jq -r '.issues[0].key // empty'
+# Paginated JQL search with strict completion checks
+paginate_jql() {
+  local jql="$1" fields="$2" max_pages="${3:-5}" page=0 token="" all_issues="[]"
+  while [[ ${page} -lt ${max_pages} ]]; do
+    local url="/rest/api/3/search/jql?jql=$(jq -rn --arg q "${jql}" '$q|@uri')&fields=${fields}&maxResults=50"
+    [[ -n "${token}" ]] && url+="&nextPageToken=$(jq -rn --arg t "${token}" '$t|@uri')"
+    local res; res="$(jira GET "${url}")" || return 1
+    printf '%s\n' "${res}" | jq -e '.issues | type == "array"' >/dev/null || die "Search response missing issues array"
+    all_issues="$(jq -n --argjson acc "${all_issues}" --argjson cur "${res}" '$acc + $cur.issues')" || return 1
+    local is_last; is_last="$(printf '%s\n' "${res}" | jq -r 'if (.isLast | type) == "boolean" then .isLast else error("missing isLast") end')" || die "Invalid search response: missing or non-boolean isLast"
+    [[ "${is_last}" == "true" ]] && { echo "${all_issues}"; return 0; }
+    token="$(printf '%s\n' "${res}" | jq -r '.nextPageToken // empty')"
+    [[ -n "${token}" ]] || die "Search incomplete: isLast=false but nextPageToken is missing"
+    page=$((page + 1))
+  done
+  die "Search incomplete: page limit (${max_pages} pages) reached"
 }
 
-# find_by_summary PROJECT PHRASE -> "KEY: SUMMARY" lines for tickets whose summary
-# contains PHRASE, even if they're missing the release label (catches hand-created
-# duplicates). PHRASE should be a stable substring (e.g. "Create MicroShift zstream for
-# 4.22.18") rather than just the bare version, so it doesn't match on loose number-token
-# overlap with unrelated tickets (e.g. golang bump tickets mentioning "4.18").
-find_by_summary() {
-  local jql
-  jql="project = $1 AND summary ~ \"$2\" ORDER BY created DESC"
-  jira GET "/rest/api/3/search/jql?fields=key,summary&maxResults=5&jql=$(jq -rn --arg q "${jql}" '$q|@uri')" \
-    | jq -r '.issues[] | "\(.key): \(.fields.summary)"'
-}
-
-# build_payload TEMPLATE_JSON PROJECT SUMMARY DUE_DATE LABELS_JSON [PARENT_KEY]
-# Copies issue type, components and description from the template; replaces "X.Y.Z"
-# in the description text with the real version.
+# --- Payload Builder ---
 build_payload() {
-  jq -n --argjson tpl "$1" --arg project "$2" --arg summary "$3" --arg due "$4" \
-        --argjson labels "$5" --arg parent "${6:-}" --arg version "${VERSION}" '
+  local tpl_json="$1" proj="$2" summary="$3" due="$4" labels_json="$5" parent_key="${6:-}"
+  jq -n --argjson tpl "${tpl_json}" --arg proj "${proj}" --arg summary "${summary}" \
+        --arg due "${due}" --argjson labels "${labels_json}" --arg parent "${parent_key}" \
+        --arg version "${VERSION}" --arg reason "${REASON}" '
     ($tpl.fields) as $f
-    | {fields: (
-        {
-          project:    {key: $project},
-          issuetype:  {id: $f.issuetype.id},
-          summary:    $summary,
-          labels:     $labels,
-          duedate:    $due,
-          components: [($f.components // [])[] | {id}]
-        }
-        + (if $f.description then
-             {description: ($f.description
-               | walk(if type == "object" and .type == "text"
-                      then .text |= gsub("X\\.Y\\.Z"; $version) else . end))}
-           else {} end)
-        + (if $parent != "" then {parent: {key: $parent}} else {} end)
-      )}'
+    | ($f.description // {type: "doc", version: 1, content: []}) as $desc
+    | ($desc | walk(if type == "object" and .type == "text" then .text |= gsub("X\\.Y\\.Z"; $version; "i") else . end)) as $updatedDesc
+    | ($updatedDesc.content + [{
+        type: "paragraph",
+        content: [{type: "text", text: ("Reason: " + $reason), marks: [{type: "strong"}]}]
+      }]) as $finalContent
+    | {
+        fields: (
+          {
+            project: {key: $proj},
+            issuetype: {id: $f.issuetype.id},
+            summary: $summary,
+            labels: $labels,
+            duedate: $due,
+            components: [($f.components // [])[] | {id}]
+          }
+          + (if $f.priority then {priority: {id: $f.priority.id}} else {} end)
+          + {description: {type: "doc", version: 1, content: $finalContent}}
+          + (if $parent != "" then {parent: {key: $parent}} else {} end)
+        )
+      }'
 }
 
-# create_from_template PROJECT TEMPLATE SUMMARY DUE_DATE LABELS_JSON SEARCH_PHRASE [PARENT_KEY]
-# Sets globals NEW_KEY and CREATED (true/false).
-create_from_template() {
-  local project="$1" template="$2" summary="$3" due="$4" labels="$5" phrase="$6" parent="${7:-}" tpl payload
-  CREATED=false
-  NEW_KEY="$(find_by_label "${project}")"
-  if [[ -n "${NEW_KEY}" ]]; then
-    log "${project}: ticket for ${VERSION} already exists: ${NEW_KEY} (not creating another)"
-    return
-  fi
+# ==============================================================================
+# PHASE 1: PREFLIGHT VALIDATION (READ-ONLY)
+# ==============================================================================
+log "Starting Phase 1: Preflight checks for MicroShift ${VERSION}..."
 
-  local similar
-  similar="$(find_by_summary "${project}" "${phrase}")"
-  if [[ -n "${similar}" ]] && ! ${FORCE}; then
-    log "${project}: no ticket labeled ${RELEASE_LABEL}, but found similar-titled ticket(s) for ${VERSION}:"
-    echo "      ${similar//$'\n'/$'\n      '}" >&2
-    die "refusing to create a possible duplicate; investigate the ticket(s) above, then re-run with --force if a new one is really needed"
-  fi
+# 1. Validate Link Type semantics
+LINK_TYPES="$(jira GET "/rest/api/3/issueLinkType")" || exit 1
+LINK_TYPE_ID="$(echo "${LINK_TYPES}" | jq -er --arg n "${LINK_TYPE_NAME}" '
+  .issueLinkTypes[] | select(.name == $n and .inward == "is blocked by" and .outward == "blocks") | .id
+')" || die "Link type '${LINK_TYPE_NAME}' (blocks / is blocked by) not found"
 
-  tpl="$(jira GET "/rest/api/3/issue/${template}?fields=description,issuetype,components")"
-  payload="$(build_payload "${tpl}" "${project}" "${summary}" "${due}" "${labels}" "${parent}")"
-  if ${DRY_RUN}; then
-    log "[DRY RUN] would create ${project} ticket from ${template}:"
-    echo "${payload}" | jq . >&2
-    NEW_KEY="${project}-<new>"
-    CREATED=true
-  else
-    NEW_KEY="$(jira POST /rest/api/3/issue "${payload}" | jq -r .key)"
-    CREATED=true
-    log "Created ${NEW_KEY}: ${JIRA_BASE_URL}/browse/${NEW_KEY}"
-  fi
-}
+# 2. Validate Templates & Parent Epic
+ART_TPL_JSON="$(jira GET "/rest/api/3/issue/${ART_TEMPLATE}?fields=description,issuetype,components,priority,project")" || exit 1
+QE_TPL_JSON="$(jira GET "/rest/api/3/issue/${QE_TEMPLATE}?fields=description,issuetype,components,priority,project")" || exit 1
+QE_PARENT_JSON="$(jira GET "/rest/api/3/issue/${QE_PARENT}?fields=issuetype,project")" || exit 1
 
-MODE=""; if ${DRY_RUN}; then MODE=" [DRY RUN]"; fi
-log "MicroShift ${VERSION}: ART due ${ART_DUE}, release ${RELEASE_DATE}${MODE}"
+[[ "$(echo "${ART_TPL_JSON}" | jq -r '.fields.project.key // empty')" == "ART" ]] || die "${ART_TEMPLATE} is not in project ART"
+[[ "$(echo "${QE_TPL_JSON}" | jq -r '.fields.project.key // empty')" == "USHIFT" ]] || die "${QE_TEMPLATE} is not in project USHIFT"
+[[ "$(echo "${QE_PARENT_JSON}" | jq -r '.fields.project.key // empty')" == "USHIFT" && \
+   "$(echo "${QE_PARENT_JSON}" | jq -r '.fields.issuetype.name // empty')" == "Epic" ]] || die "${QE_PARENT} must be an Epic in project USHIFT"
 
-# 1. ART request ticket (keeps ART's own label so their tooling still finds it)
+ART_TPL_TYPE_ID="$(echo "${ART_TPL_JSON}" | jq -r '.fields.issuetype.id // empty')"
+QE_TPL_TYPE_ID="$(echo "${QE_TPL_JSON}" | jq -r '.fields.issuetype.id // empty')"
+[[ -n "$ART_TPL_TYPE_ID" && -n "$QE_TPL_TYPE_ID" ]] || die "Template response missing issue-type ID"
+
+# 3. Label duplicate checks
+ART_LABEL_ISSUES="$(paginate_jql "project = ART AND labels = \"${RELEASE_LABEL}\"" "key,summary,issuetype" 3)" || exit 1
+QE_LABEL_ISSUES="$(paginate_jql "project = USHIFT AND labels = \"${RELEASE_LABEL}\"" "key,summary,issuetype,parent" 3)" || exit 1
+
+[[ $(echo "${ART_LABEL_ISSUES}" | jq 'length') -gt 1 ]] && die "Multiple ART tickets found with label ${RELEASE_LABEL}"
+[[ $(echo "${QE_LABEL_ISSUES}" | jq 'length') -gt 1 ]] && die "Multiple USHIFT tickets found with label ${RELEASE_LABEL}"
+
+EXISTING_ART_KEY="$(echo "${ART_LABEL_ISSUES}" | jq -r '.[0].key // empty')"
+EXISTING_QE_KEY="$(echo "${QE_LABEL_ISSUES}" | jq -r '.[0].key // empty')"
+
+# Validate reused tickets if matched by label
 ART_SUMMARY="Create MicroShift zstream for ${VERSION}"
-create_from_template ART "${ART_TEMPLATE}" \
-  "${ART_SUMMARY}" "${ART_DUE}" \
-  "$(jq -cn --arg a "${ART_LABEL}" --arg b "${RELEASE_LABEL}" '[$a, $b]')" \
-  "${ART_SUMMARY}"
-ART_KEY="${NEW_KEY}"; ART_CREATED="${CREATED}"
+QE_SUMMARY="[QE] ${VERSION} MicroShift Release Testing (${RELEASE_HUMAN})"
 
-# 2. QE release testing ticket under the release epic
-# Search phrase omits the "[QE] " prefix and the parenthetical date so it still matches
-# older tickets created without that prefix, or with a different due date, for this version.
-create_from_template USHIFT "${QE_TEMPLATE}" \
-  "[QE] ${VERSION} MicroShift Release Testing (${RELEASE_HUMAN})" "${RELEASE_DATE}" \
-  "$(jq -cn --arg b "${RELEASE_LABEL}" '[$b]')" \
-  "${VERSION} MicroShift Release Testing" "${QE_PARENT}"
-QE_KEY="${NEW_KEY}"
+if [[ -n "${EXISTING_ART_KEY}" ]]; then
+  echo "${ART_LABEL_ISSUES}" | jq -e --arg tid "${ART_TPL_TYPE_ID}" --arg s "${ART_SUMMARY}" \
+    '.[0] | select(.fields.issuetype.id == $tid and .fields.summary == $s)' >/dev/null \
+    || die "Existing ART ticket ${EXISTING_ART_KEY} does not match expected issue type or summary"
+fi
 
-# 3. Link: QE ticket "is blocked by" ART ticket.
-# Jira's link API is easy to get backwards: for type "Blocks", inwardIssue is the ticket
-# that "blocks" and outwardIssue is the one that "is blocked by". After the first real run,
-# confirm the ART ticket shows "blocks USHIFT-..."; if it's reversed, swap the two keys.
-LINK_PAYLOAD="$(jq -n --arg t "${LINK_TYPE}" --arg art "${ART_KEY}" --arg qe "${QE_KEY}" \
-  '{type: {name: $t}, inwardIssue: {key: $art}, outwardIssue: {key: $qe}}')"
-if ${DRY_RUN}; then
-  log "[DRY RUN] would link ${QE_KEY} (is blocked by) ${ART_KEY}:"
-  echo "${LINK_PAYLOAD}" | jq . >&2
+if [[ -n "${EXISTING_QE_KEY}" ]]; then
+  echo "${QE_LABEL_ISSUES}" | jq -e --arg tid "${QE_TPL_TYPE_ID}" --arg p "${QE_PARENT}" --arg ver "${VERSION}" '
+    ($ver | split(".") | join("\\.")) as $v
+    | .[0]
+    | select(
+        .fields.issuetype.id == $tid
+        and .fields.parent.key == $p
+        and (.fields.summary | test("(^|[^0-9.])" + $v + "([^0-9.]|$)"))
+        and (.fields.summary | test("(?i)microshift release testing"))
+      )
+  ' >/dev/null || die "Existing QE ticket ${EXISTING_QE_KEY} does not match expected type, parent, or release purpose"
+fi
+
+# 4. Text similarity search if no label match
+if [[ -z "${EXISTING_ART_KEY}" ]] && ! ${FORCE}; then
+  SIMILAR_ART="$(paginate_jql "project = ART AND summary ~ \"${VERSION}\"" "key,summary" 5)" || exit 1
+  ART_MATCHES="$(echo "${SIMILAR_ART}" | jq -r --arg s "${ART_SUMMARY}" '.[]? | select(.fields.summary == $s) | "\(.key): \(.fields.summary)"')"
+  [[ -n "${ART_MATCHES}" ]] && die "Found existing ART ticket(s) missing label '${RELEASE_LABEL}':\n${ART_MATCHES}\nInspect or use --force"
+fi
+
+if [[ -z "${EXISTING_QE_KEY}" ]] && ! ${FORCE}; then
+  SIMILAR_QE="$(paginate_jql "project = USHIFT AND summary ~ \"${VERSION}\"" "key,summary" 5)" || exit 1
+  QE_MATCHES="$(echo "${SIMILAR_QE}" | jq -r --arg ver "${VERSION}" '
+    ($ver | split(".") | join("\\.")) as $v
+    | .[]?
+    | select(
+        (.fields.summary | test("(^|[^0-9.])" + $v + "([^0-9.]|$)"))
+        and (.fields.summary | test("(?i)microshift release testing"))
+      )
+    | "\(.key): \(.fields.summary)"
+  ')"
+  [[ -n "${QE_MATCHES}" ]] && die "Found existing QE ticket(s) missing label '${RELEASE_LABEL}':\n${QE_MATCHES}\nInspect or use --force"
+fi
+
+# 5. Preflight reverse-link check if both exist
+if [[ -n "${EXISTING_ART_KEY}" && -n "${EXISTING_QE_KEY}" ]]; then
+  QE_LINKS="$(jira GET "/rest/api/3/issue/${EXISTING_QE_KEY}?fields=issuelinks")" || exit 1
+  REV_LINK="$(echo "${QE_LINKS}" | jq -r --arg art "${EXISTING_ART_KEY}" --arg lt "${LINK_TYPE_NAME}" '
+    [.fields.issuelinks[]? | select(.type.name == $lt and .outwardIssue.key == $art)] | length
+  ')"
+  [[ "${REV_LINK}" -gt 0 ]] && die "Conflicting reverse link detected: ${EXISTING_QE_KEY} already blocks ${EXISTING_ART_KEY}"
+fi
+
+# 6. Prebuild payloads in preflight
+ART_PAYLOAD=""
+QE_PAYLOAD=""
+if [[ -z "${EXISTING_ART_KEY}" ]]; then
+  ART_LABELS="$(jq -cn --arg a "${ART_LABEL}" --arg b "${RELEASE_LABEL}" '[$a, $b]')"
+  ART_PAYLOAD="$(build_payload "${ART_TPL_JSON}" "ART" "${ART_SUMMARY}" "${ART_DUE}" "${ART_LABELS}")"
+fi
+if [[ -z "${EXISTING_QE_KEY}" ]]; then
+  QE_LABELS="$(jq -cn --arg b "${RELEASE_LABEL}" '[$b]')"
+  QE_PAYLOAD="$(build_payload "${QE_TPL_JSON}" "USHIFT" "${QE_SUMMARY}" "${RELEASE_DATE}" "${QE_LABELS}" "${QE_PARENT}")"
+fi
+
+log "Preflight checks passed."
+
+# ==============================================================================
+# PHASE 2: EXECUTION (WRITES)
+# ==============================================================================
+ART_CREATED=false
+if [[ -n "${EXISTING_ART_KEY}" ]]; then
+  ART_KEY="${EXISTING_ART_KEY}"
+  log "ART: Reusing existing ticket ${ART_KEY}"
 else
-  LINKED="$(jira GET "/rest/api/3/issue/${QE_KEY}?fields=issuelinks" \
-    | jq -r --arg art "${ART_KEY}" \
-        '[.fields.issuelinks[]? | (.inwardIssue.key, .outwardIssue.key) | select(. == $art)] | length')"
-  if [[ "${LINKED}" -gt 0 ]]; then
-    log "${QE_KEY} is already linked to ${ART_KEY}"
+  if ${DRY_RUN}; then
+    log "[DRY RUN] Would create ART ticket with payload:"
+    echo "${ART_PAYLOAD}" | jq . >&2
+    ART_KEY="ART-<dryrun>"
+    ART_CREATED=true
   else
-    jira POST /rest/api/3/issueLink "${LINK_PAYLOAD}" >/dev/null
-    log "Linked ${QE_KEY} (is blocked by) ${ART_KEY}"
+    CREATE_RES="$(jira POST "/rest/api/3/issue" "${ART_PAYLOAD}")" || exit 1
+    ART_KEY="$(echo "${CREATE_RES}" | jq -r '.key // empty')"
+    [[ "${ART_KEY}" =~ ${RE_JIRAKEY} ]] || die "Unexpected create response from ART: missing/invalid issue key; creation outcome unknown. Reconcile before retrying."
+    ART_CREATED=true
+    log "Created ART ticket: ${JIRA_BASE_URL}/browse/${ART_KEY}"
   fi
 fi
 
-# 4. Slack request to #forum-ocp-art (only when the ART ticket is new, to avoid re-pinging)
-if ${ART_CREATED}; then
+if [[ -n "${EXISTING_QE_KEY}" ]]; then
+  QE_KEY="${EXISTING_QE_KEY}"
+  log "USHIFT: Reusing existing ticket ${QE_KEY}"
+else
+  if ${DRY_RUN}; then
+    log "[DRY RUN] Would create USHIFT QE ticket with payload:"
+    echo "${QE_PAYLOAD}" | jq . >&2
+    QE_KEY="USHIFT-<dryrun>"
+  else
+    CREATE_RES="$(jira POST "/rest/api/3/issue" "${QE_PAYLOAD}")" || exit 1
+    QE_KEY="$(echo "${CREATE_RES}" | jq -r '.key // empty')"
+    [[ "${QE_KEY}" =~ ${RE_JIRAKEY} ]] || die "Unexpected create response from USHIFT: missing/invalid issue key; creation outcome unknown. Reconcile before retrying."
+    log "Created USHIFT ticket: ${JIRA_BASE_URL}/browse/${QE_KEY}"
+  fi
+fi
+
+# Issue Linking: QE is blocked by ART
+# Jira REST v3: outwardIssue = blocks (ART), inwardIssue = is blocked by (QE)
+if ${DRY_RUN}; then
+  log "[DRY RUN] Would link: ${QE_KEY} (is blocked by) -> ${ART_KEY} (blocks)"
+else
+  QE_LINKS="$(jira GET "/rest/api/3/issue/${QE_KEY}?fields=issuelinks")" || exit 1
+  ALREADY_LINKED="$(echo "${QE_LINKS}" | jq -r --arg art "${ART_KEY}" --arg lt "${LINK_TYPE_NAME}" '
+    [.fields.issuelinks[]? | select(.type.name == $lt and .inwardIssue.key == $art)] | length
+  ')"
+  if [[ "${ALREADY_LINKED}" -gt 0 ]]; then
+    log "Link verified: ${QE_KEY} is already blocked by ${ART_KEY}"
+  else
+    LINK_PAYLOAD="$(jq -n --arg id "${LINK_TYPE_ID}" --arg art "${ART_KEY}" --arg qe "${QE_KEY}" '{
+      type: {id: $id},
+      outwardIssue: {key: $art},
+      inwardIssue: {key: $qe}
+    }')"
+    jira POST "/rest/api/3/issueLink" "${LINK_PAYLOAD}" >/dev/null || exit 1
+    VERIFY_LINKS="$(jira GET "/rest/api/3/issue/${QE_KEY}?fields=issuelinks")" || exit 1
+    VERIFIED="$(echo "${VERIFY_LINKS}" | jq -r --arg art "${ART_KEY}" --arg lt "${LINK_TYPE_NAME}" '
+      [.fields.issuelinks[]? | select(.type.name == $lt and .inwardIssue.key == $art)] | length
+    ')"
+    [[ "${VERIFIED}" -gt 0 ]] || die "Link created reported success, but readback verification failed"
+    log "Successfully linked: ${QE_KEY} is blocked by ${ART_KEY}"
+  fi
+fi
+
+# Slack Notification
+if ${ART_CREATED} || ${RESEND_SLACK}; then
   GROUP="${SLACK_ART_GROUP_ID:+<!subteam^${SLACK_ART_GROUP_ID}|@release-artists>}"
   GROUP="${GROUP:-@release-artists}"
-  CC=""
-  declare -A CC_SEEN=()
-  for id in ${DEFAULT_CC_USER_IDS} ${SLACK_CC_USER_IDS:-}; do
-    [[ -n "${CC_SEEN[${id}]:-}" ]] && continue
-    CC_SEEN[${id}]=1
-    CC+="<@${id}> "
-  done
+  ALL_USERS="$(echo "${DEFAULT_CC_USER_IDS} ${SLACK_CC_USER_IDS:-}" | tr ' ' '\n' | grep -v '^$' | sort -u)"
+  CC_STR=""
+  for uid in ${ALL_USERS}; do CC_STR+="<@${uid}> "; done
+
   MSG="Hello, ${GROUP} I've opened <${JIRA_BASE_URL}/browse/${ART_KEY}|${ART_KEY}> requesting MicroShift ${VERSION} builds (due date ${ART_DUE_HUMAN}). Please help create RPMs and bootc images, thanks!"
-  if [[ -n "${CC}" ]]; then MSG+=$'\ncc '"${CC% }"; fi
-  SLACK_PAYLOAD="$(jq -n --arg text "${MSG}" '{text: $text}')"
+  MSG+=$'\nReason: '"${REASON}"
+  [[ -n "${CC_STR}" ]] && MSG+=$'\ncc '"${CC_STR% }"
 
   if ${DRY_RUN}; then
-    log "[DRY RUN] would post to Slack:"
+    log "[DRY RUN] Would send Slack notification to #forum-ocp-art:"
     echo "${MSG}" >&2
   else
-    curl -sS --fail -X POST -H 'Content-Type: application/json' \
-      --data "${SLACK_PAYLOAD}" "${SLACK_WEBHOOK_URL}" >/dev/null || die "Slack post failed"
-    log "Posted request to #forum-ocp-art"
+    log "Posting notification to Slack..."
+    curl -sS --fail --connect-timeout 10 --max-time 15 -X POST \
+      -H 'Content-Type: application/json' \
+      --data "$(jq -n --arg text "${MSG}" '{text: $text}')" "${SLACK_WEBHOOK_URL}" >/dev/null \
+      || die "Slack delivery failed: outcome unknown. Verify #forum-ocp-art before using --resend-slack."
+    log "Slack notification posted successfully."
   fi
 else
-  log "ART ticket already existed; skipping Slack message"
+  log "ART ticket reused and --resend-slack not set; skipping Slack notification."
 fi
 
+# Standard output: issue keys
 echo "${ART_KEY} ${QE_KEY}"
