@@ -90,6 +90,7 @@ def query_resolved_bugs(version, branch=None, since_version=None,
                 "release_note_status": "",
                 "labels": data["labels"],
                 "release_action": data["release_action"],
+                "release_action_source": data.get("release_action_source", "label"),
             })
         else:
             all_bugs.append({
