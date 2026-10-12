@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash
 #
 # request_art_builds.sh - MicroShift z-stream build & QE release coordinator.
 #
@@ -7,7 +7,7 @@
 #
 # Flags:
 #   --reason <TEXT>    Mandatory explanation (CVE, cadence, etc.)
-#   --dry-run          Run preflight and print payloads without writing
+#   --dry-run          Run preflight and print redacted previews without writing
 #   --force            Bypass similarity duplicate warning
 #   --resend-slack     Send Slack notification even if ART ticket was reused
 #   -h, --help         Show usage
@@ -31,13 +31,19 @@ REASON=""
 ARGS=()
 
 # --- Helpers ---
+# Print a safe error message and exit.
 die() { echo "ERROR: $*" >&2; exit 1; }
+# Print operator progress without contaminating standard output.
 log() { echo "==> $*" >&2; }
 
 # Bash 3.2 regex patterns (must be unquoted in [[ =~ $pat ]])
 RE_SEMVER='^[0-9]+\.[0-9]+\.[0-9]+$'
 RE_ISODATE='^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
 RE_JIRAKEY='^[A-Z0-9]+-[0-9]+$'
+RE_HTTPS_BASE_URL='^https://[^/@[:space:]]+(:[0-9]+)?(/[^[:space:]]*)?$'
+
+[[ "${JIRA_BASE_URL}" =~ ${RE_HTTPS_BASE_URL} ]] \
+  || die "JIRA_BASE_URL must be an HTTPS URL without embedded credentials"
 
 # --- Argument Parsing ---
 while [[ $# -gt 0 ]]; do
@@ -69,6 +75,7 @@ REASON="$(echo "${REASON}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
 [[ "${RELEASE_DATE}" =~ ${RE_ISODATE} ]] || die "RELEASE_DATE must be YYYY-MM-DD (got '${RELEASE_DATE}')"
 
 # Date round-trip & chronological validation (GNU & BSD date portable)
+# Validate an ISO date using GNU or BSD date.
 valid_calendar_date() {
   local in="$1" out=""
   out="$(date -d "${in}" '+%Y-%m-%d' 2>/dev/null || date -j -f "%Y-%m-%d" "${in}" '+%Y-%m-%d' 2>/dev/null || true)"
@@ -78,6 +85,7 @@ valid_calendar_date "${ART_DUE}" || die "ART_DUE is not a valid calendar date: $
 valid_calendar_date "${RELEASE_DATE}" || die "RELEASE_DATE is not a valid calendar date: ${RELEASE_DATE}"
 [[ "${ART_DUE}" > "${RELEASE_DATE}" ]] && die "ART_DUE (${ART_DUE}) cannot be after RELEASE_DATE (${RELEASE_DATE})"
 
+# Render an ISO date for the operator-facing notification.
 human_date() { date -d "$1" '+%b %-d' 2>/dev/null || date -j -f "%Y-%m-%d" "$1" '+%b %e' 2>/dev/null || echo "$1"; }
 ART_DUE_HUMAN="$(human_date "${ART_DUE}")"
 RELEASE_HUMAN="$(human_date "${RELEASE_DATE}")"
@@ -92,14 +100,17 @@ ${DRY_RUN} || : "${SLACK_WEBHOOK_URL:?SLACK_WEBHOOK_URL is required when not run
 # Atomic directory lock (trap installed only after successful acquisition)
 LOCKDIR="${TMPDIR:-/tmp}/request_art_builds_${VERSION}.lock"
 mkdir "${LOCKDIR}" 2>/dev/null || die "Cannot acquire lock: ${LOCKDIR} (another run active or stale lock)"
+# Remove the lock owned by this process.
 cleanup_lock() { rmdir "${LOCKDIR}" 2>/dev/null || true; }
 trap cleanup_lock EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
 # --- Jira API Client ---
+# Call Jira while keeping credentials, response bodies, and hosts out of logs.
 jira() {
-  local method="$1" path="$2" body="${3:-}" out code
+  local method="$1" path="$2" body="${3:-}" out code safe_path
+  safe_path="${path%%\?*}"
   out="$(mktemp "${TMPDIR:-/tmp}/jira_res.XXXXXX")"
   local args=(-sS -o "${out}" -w '%{http_code}' -X "${method}"
     --connect-timeout 10 --max-time 30
@@ -107,27 +118,28 @@ jira() {
     -H 'Accept: application/json' -H 'Content-Type: application/json')
   [[ -n "${body}" ]] && args+=(--data "${body}")
 
-  code="$(curl "${args[@]}" "${JIRA_BASE_URL}${path}")" || {
+  code="$(curl "${args[@]}" "${JIRA_BASE_URL}${path}" 2>/dev/null)" || {
     rm -f "${out}"
     if [[ "${method}" == "POST" || "${method}" == "PUT" ]]; then
-      die "Network failure during ${method} ${path}; mutation outcome unknown. Reconcile manually before retrying."
+      die "Network failure during ${method} ${safe_path}; mutation outcome unknown. Reconcile manually before retrying."
     fi
-    die "curl network failure: ${method} ${path}"
+    die "Network failure during ${method} ${safe_path}"
   }
 
   if [[ "${code}" != 2* ]]; then
-    echo "Jira API ${method} ${path} failed (HTTP ${code}):" >&2
-    cat "${out}" >&2; echo >&2
+    echo "Jira API request failed (HTTP ${code}): ${method} ${safe_path}" >&2
     rm -f "${out}"; return 1
   fi
   cat "${out}"; rm -f "${out}"
 }
 
 # Paginated JQL search with strict completion checks
+# Fetch every JQL page or fail before any mutation.
 paginate_jql() {
   local jql="$1" fields="$2" max_pages="${3:-5}" page=0 token="" all_issues="[]"
   while [[ ${page} -lt ${max_pages} ]]; do
-    local url="/rest/api/3/search/jql?jql=$(jq -rn --arg q "${jql}" '$q|@uri')&fields=${fields}&maxResults=50"
+    local url
+    url="/rest/api/3/search/jql?jql=$(jq -rn --arg q "${jql}" '$q|@uri')&fields=${fields}&maxResults=50"
     [[ -n "${token}" ]] && url+="&nextPageToken=$(jq -rn --arg t "${token}" '$t|@uri')"
     local res; res="$(jira GET "${url}")" || return 1
     printf '%s\n' "${res}" | jq -e '.issues | type == "array"' >/dev/null || die "Search response missing issues array"
@@ -142,6 +154,7 @@ paginate_jql() {
 }
 
 # --- Payload Builder ---
+# Build a create-issue payload from a validated template.
 build_payload() {
   local tpl_json="$1" proj="$2" summary="$3" due="$4" labels_json="$5" parent_key="${6:-}"
   jq -n --argjson tpl "${tpl_json}" --arg proj "${proj}" --arg summary "${summary}" \
@@ -282,8 +295,7 @@ if [[ -n "${EXISTING_ART_KEY}" ]]; then
   log "ART: Reusing existing ticket ${ART_KEY}"
 else
   if ${DRY_RUN}; then
-    log "[DRY RUN] Would create ART ticket with payload:"
-    echo "${ART_PAYLOAD}" | jq . >&2
+    log "[DRY RUN] Would create ART ticket for ${VERSION} (description and reason redacted)."
     ART_KEY="ART-<dryrun>"
     ART_CREATED=true
   else
@@ -291,7 +303,7 @@ else
     ART_KEY="$(echo "${CREATE_RES}" | jq -r '.key // empty')"
     [[ "${ART_KEY}" =~ ${RE_JIRAKEY} ]] || die "Unexpected create response from ART: missing/invalid issue key; creation outcome unknown. Reconcile before retrying."
     ART_CREATED=true
-    log "Created ART ticket: ${JIRA_BASE_URL}/browse/${ART_KEY}"
+    log "Created ART ticket: ${ART_KEY}"
   fi
 fi
 
@@ -300,19 +312,18 @@ if [[ -n "${EXISTING_QE_KEY}" ]]; then
   log "USHIFT: Reusing existing ticket ${QE_KEY}"
 else
   if ${DRY_RUN}; then
-    log "[DRY RUN] Would create USHIFT QE ticket with payload:"
-    echo "${QE_PAYLOAD}" | jq . >&2
+    log "[DRY RUN] Would create USHIFT QE ticket for ${VERSION} (description and reason redacted)."
     QE_KEY="USHIFT-<dryrun>"
   else
     CREATE_RES="$(jira POST "/rest/api/3/issue" "${QE_PAYLOAD}")" || exit 1
     QE_KEY="$(echo "${CREATE_RES}" | jq -r '.key // empty')"
     [[ "${QE_KEY}" =~ ${RE_JIRAKEY} ]] || die "Unexpected create response from USHIFT: missing/invalid issue key; creation outcome unknown. Reconcile before retrying."
-    log "Created USHIFT ticket: ${JIRA_BASE_URL}/browse/${QE_KEY}"
+    log "Created USHIFT ticket: ${QE_KEY}"
   fi
 fi
 
 # Issue Linking: QE is blocked by ART
-# Jira REST v3: outwardIssue = blocks (ART), inwardIssue = is blocked by (QE)
+# Jira POST maps inwardIssue to the source and outwardIssue to the destination.
 if ${DRY_RUN}; then
   log "[DRY RUN] Would link: ${QE_KEY} (is blocked by) -> ${ART_KEY} (blocks)"
 else
@@ -325,8 +336,8 @@ else
   else
     LINK_PAYLOAD="$(jq -n --arg id "${LINK_TYPE_ID}" --arg art "${ART_KEY}" --arg qe "${QE_KEY}" '{
       type: {id: $id},
-      outwardIssue: {key: $art},
-      inwardIssue: {key: $qe}
+      inwardIssue: {key: $art},
+      outwardIssue: {key: $qe}
     }')"
     jira POST "/rest/api/3/issueLink" "${LINK_PAYLOAD}" >/dev/null || exit 1
     VERIFY_LINKS="$(jira GET "/rest/api/3/issue/${QE_KEY}?fields=issuelinks")" || exit 1
@@ -344,21 +355,23 @@ if ${ART_CREATED} || ${RESEND_SLACK}; then
   GROUP="${GROUP:-@release-artists}"
   ALL_USERS="$(echo "${DEFAULT_CC_USER_IDS} ${SLACK_CC_USER_IDS:-}" | tr ' ' '\n' | grep -v '^$' | sort -u)"
   CC_STR=""
-  for uid in ${ALL_USERS}; do CC_STR+="<@${uid}> "; done
+  while IFS= read -r uid; do
+    [[ -n "${uid}" ]] || continue
+    CC_STR+="<@${uid}> "
+  done <<< "${ALL_USERS}"
 
   MSG="Hello, ${GROUP} I've opened <${JIRA_BASE_URL}/browse/${ART_KEY}|${ART_KEY}> requesting MicroShift ${VERSION} builds (due date ${ART_DUE_HUMAN}). Please help create RPMs and bootc images, thanks!"
   MSG+=$'\nReason: '"${REASON}"
   [[ -n "${CC_STR}" ]] && MSG+=$'\ncc '"${CC_STR% }"
 
   if ${DRY_RUN}; then
-    log "[DRY RUN] Would send Slack notification to #forum-ocp-art:"
-    echo "${MSG}" >&2
+    log "[DRY RUN] Would send the notification for ${ART_KEY} (message, reason, and URL redacted)."
   else
     log "Posting notification to Slack..."
     curl -sS --fail --connect-timeout 10 --max-time 15 -X POST \
       -H 'Content-Type: application/json' \
-      --data "$(jq -n --arg text "${MSG}" '{text: $text}')" "${SLACK_WEBHOOK_URL}" >/dev/null \
-      || die "Slack delivery failed: outcome unknown. Verify #forum-ocp-art before using --resend-slack."
+      --data "$(jq -n --arg text "${MSG}" '{text: $text}')" "${SLACK_WEBHOOK_URL}" >/dev/null 2>&1 \
+      || die "Slack delivery failed: outcome unknown. Verify delivery before using --resend-slack."
     log "Slack notification posted successfully."
   fi
 else
