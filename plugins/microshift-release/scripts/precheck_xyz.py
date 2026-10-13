@@ -433,10 +433,17 @@ def compute_recommendation(evaluation):
                     continue
                 key = bug.get("key", "?")
                 status = bug.get("status", "unknown")
-                review_details.append(
-                    f"{key} is {status} — not yet verified, "
-                    "resolve or label it before releasing"
-                )
+                resolution = bug.get("resolution", "")
+                if resolution:
+                    review_details.append(
+                        f"{key} is {status} (resolution: {resolution}) — "
+                        "review release requirements before releasing"
+                    )
+                else:
+                    review_details.append(
+                        f"{key} is {status} — not yet verified, "
+                        "resolve or label it before releasing"
+                    )
             reason = "; ".join(review_details) if review_details else (
                 f"{needs_review_bugs} OCPBUGS need review"
             )
