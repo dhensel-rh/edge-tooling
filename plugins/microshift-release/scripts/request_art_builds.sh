@@ -1,4 +1,4 @@
-#!/usr/bin/bash
+#!/usr/bin/env bash
 #
 # request_art_builds.sh - MicroShift z-stream build & QE release coordinator.
 #
@@ -40,7 +40,7 @@ log() { echo "==> $*" >&2; }
 RE_SEMVER='^[0-9]+\.[0-9]+\.[0-9]+$'
 RE_ISODATE='^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
 RE_JIRAKEY='^[A-Z0-9]+-[0-9]+$'
-RE_HTTPS_BASE_URL='^https://[^/@[:space:]]+(:[0-9]+)?(/[^[:space:]]*)?$'
+RE_HTTPS_BASE_URL='^`https://[^/@[:space:]]+(:[0-9]+)?(/[^[:space:]]*)?$`'
 
 [[ "${JIRA_BASE_URL}" =~ ${RE_HTTPS_BASE_URL} ]] \
   || die "JIRA_BASE_URL must be an HTTPS URL without embedded credentials"
@@ -86,7 +86,7 @@ valid_calendar_date "${RELEASE_DATE}" || die "RELEASE_DATE is not a valid calend
 [[ "${ART_DUE}" > "${RELEASE_DATE}" ]] && die "ART_DUE (${ART_DUE}) cannot be after RELEASE_DATE (${RELEASE_DATE})"
 
 # Render an ISO date for the operator-facing notification.
-human_date() { date -d "$1" '+%b %-d' 2>/dev/null || date -j -f "%Y-%m-%d" "$1" '+%b %e' 2>/dev/null || echo "$1"; }
+human_date() { date -d "$1" '+%b %-d' 2>/dev/null || date -j -f "%Y-%m-%d" "$1" '+%b %e' 2>/dev/null | tr -s ' ' || echo "$1"; }
 ART_DUE_HUMAN="$(human_date "${ART_DUE}")"
 RELEASE_HUMAN="$(human_date "${RELEASE_DATE}")"
 
@@ -323,7 +323,6 @@ else
 fi
 
 # Issue Linking: QE is blocked by ART
-# Jira POST maps inwardIssue to the source and outwardIssue to the destination.
 if ${DRY_RUN}; then
   log "[DRY RUN] Would link: ${QE_KEY} (is blocked by) -> ${ART_KEY} (blocks)"
 else
@@ -336,8 +335,8 @@ else
   else
     LINK_PAYLOAD="$(jq -n --arg id "${LINK_TYPE_ID}" --arg art "${ART_KEY}" --arg qe "${QE_KEY}" '{
       type: {id: $id},
-      inwardIssue: {key: $art},
-      outwardIssue: {key: $qe}
+      inwardIssue: {key: $qe},
+      outwardIssue: {key: $art}
     }')"
     jira POST "/rest/api/3/issueLink" "${LINK_PAYLOAD}" >/dev/null || exit 1
     VERIFY_LINKS="$(jira GET "/rest/api/3/issue/${QE_KEY}?fields=issuelinks")" || exit 1

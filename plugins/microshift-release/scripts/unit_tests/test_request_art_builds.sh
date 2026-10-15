@@ -50,9 +50,11 @@ jq -e -s 'length == 1 and (.[0].text | contains("ART-101"))' \
 run_case reuse_desired
 test "$(cat "${CASE_DIR}/stdout")" = "ART-55 USHIFT-66"
 jq -e -s 'all(.[]; .method == "GET")' "${CASE_DIR}/requests.jsonl" >/dev/null
+test ! -s "${CASE_DIR}/slack.jsonl"
 
 run_case dry_run --dry-run
 jq -e -s 'all(.[]; .method == "GET")' "${CASE_DIR}/requests.jsonl" >/dev/null
+test ! -s "${CASE_DIR}/slack.jsonl"
 
 run_case reuse_desired --resend-slack
 jq -e -s '
