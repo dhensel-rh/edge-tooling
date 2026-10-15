@@ -7,6 +7,7 @@ SCRIPT="${TEST_DIR}/../request_art_builds.sh"
 FIXTURES="${TEST_DIR}/fixtures"
 TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/request_art_builds_test.XXXXXX")"
 trap 'rm -rf "${TEST_ROOT}"' EXIT
+SYNTHETIC_VALUE="synthetic-${RANDOM}-${RANDOM}"
 
 PASS=0
 FAIL=0
@@ -62,7 +63,7 @@ run_case() {
       TMPDIR="${LAST_CASE}/tmp" \
       JIRA_BASE_URL="${CASE_JIRA_BASE_URL:-https://jira.example.test}" \
       JIRA_USER_EMAIL="operator@example.test" \
-      JIRA_API_TOKEN="not-a-real-token" \
+      JIRA_API_TOKEN="${SYNTHETIC_VALUE}" \
       SLACK_WEBHOOK_URL="https://hooks.example.test/mock" \
       SLACK_CC_USER_IDS="${CASE_CC_USERS:-}" \
       MOCK_SCENARIO="${scenario}" \
@@ -197,7 +198,9 @@ assert_file_excludes "HTTP failure hides the Jira base URL" "${FAIL_CASE}/stderr
 assert_true "failing search performs no POST" jq -e -s 'all(.[]; .method != "POST")' \
   "${FAIL_CASE}/requests.jsonl"
 
-CASE_JIRA_BASE_URL='https://sample-user:sample-pass@jira.example.test'
+SYNTHETIC_USER="synthetic-${RANDOM}"
+SYNTHETIC_PASSWORD="synthetic-${RANDOM}"
+CASE_JIRA_BASE_URL="https://${SYNTHETIC_USER}:${SYNTHETIC_PASSWORD}@jira.example.test"
 if run_case validation 4.20.7 2026-11-18 2026-11-20 --reason test; then
   fail "credential-bearing Jira URL is rejected"
 else
@@ -205,7 +208,7 @@ else
     "JIRA_BASE_URL must be an HTTPS URL without embedded credentials"
 fi
 assert_file_excludes "credential-bearing Jira URL is not echoed" "${LAST_CASE}/stderr" \
-  "sample-user:sample-pass@jira.example.test"
+  "${CASE_JIRA_BASE_URL#https://}"
 unset CASE_JIRA_BASE_URL
 
 printf '\nResults: %d passed, %d failed\n' "${PASS}" "${FAIL}"
