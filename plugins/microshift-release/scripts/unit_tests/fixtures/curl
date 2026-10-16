@@ -78,7 +78,7 @@ desired_links() {
   [[ -f "${MOCK_STATE_DIR}/art-key" ]] && art="$(< "${MOCK_STATE_DIR}/art-key")"
   jq -cn --arg art "${art}" '{fields: {issuelinks: [{
     type: {name: "Blocks", inward: "is blocked by", outward: "blocks"},
-    inwardIssue: {key: $art}
+    outwardIssue: {key: $art}
   }]}}'
 }
 
@@ -86,7 +86,7 @@ desired_links() {
 reverse_links() {
   jq -cn --arg art "${MOCK_ART_KEY}" '{fields: {issuelinks: [{
     type: {name: "Blocks", inward: "is blocked by", outward: "blocks"},
-    outwardIssue: {key: $art}
+    inwardIssue: {key: $art}
   }]}}'
 }
 

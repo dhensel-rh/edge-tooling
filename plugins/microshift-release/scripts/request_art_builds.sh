@@ -10,6 +10,7 @@
 #   --dry-run          Run preflight and print redacted previews without writing
 #   --force            Bypass similarity duplicate warning
 #   --resend-slack     Send Slack notification even if ART ticket was reused
+#   --skip-slack       Create/link tickets but never send the Slack notification
 #   -h, --help         Show usage
 
 set -euo pipefail
@@ -27,6 +28,7 @@ DEFAULT_CC_USER_IDS="U026BG77CDD U028C6K6AH5 U01LDR1DY5V USCCU4Z0W"
 DRY_RUN=false
 FORCE=false
 RESEND_SLACK=false
+SKIP_SLACK=false
 REASON=""
 ARGS=()
 
@@ -40,7 +42,7 @@ log() { echo "==> $*" >&2; }
 RE_SEMVER='^[0-9]+\.[0-9]+\.[0-9]+$'
 RE_ISODATE='^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
 RE_JIRAKEY='^[A-Z0-9]+-[0-9]+$'
-RE_HTTPS_BASE_URL='^`https://[^/@[:space:]]+(:[0-9]+)?(/[^[:space:]]*)?$`'
+RE_HTTPS_BASE_URL='^https://[^/@[:space:]]+(:[0-9]+)?(/[^[:space:]]*)?$'
 
 [[ "${JIRA_BASE_URL}" =~ ${RE_HTTPS_BASE_URL} ]] \
   || die "JIRA_BASE_URL must be an HTTPS URL without embedded credentials"
@@ -51,15 +53,18 @@ while [[ $# -gt 0 ]]; do
     --dry-run) DRY_RUN=true; shift ;;
     --force) FORCE=true; shift ;;
     --resend-slack) RESEND_SLACK=true; shift ;;
+    --skip-slack) SKIP_SLACK=true; shift ;;
     --reason)
       [[ $# -ge 2 && "$2" != -* ]] || die "--reason requires a non-option argument"
       REASON="$2"; shift 2 ;;
     --reason=*) REASON="${1#*=}"; shift ;;
-    -h|--help) sed -n '3,13p' "$0"; exit 0 ;;
+    -h|--help) sed -n '3,14p' "$0"; exit 0 ;;
     -*) die "Unknown option '$1'" ;;
     *) ARGS+=("$1"); shift ;;
   esac
 done
+
+${SKIP_SLACK} && ${RESEND_SLACK} && die "--skip-slack and --resend-slack are mutually exclusive"
 
 [[ ${#ARGS[@]} -eq 3 ]] || die "Expected 3 args: <VERSION> <ART_DUE_DATE> <RELEASE_DATE>"
 VERSION="${ARGS[0]}"
@@ -95,7 +100,7 @@ command -v jq >/dev/null || die "jq is required"
 command -v curl >/dev/null || die "curl is required"
 : "${JIRA_USER_EMAIL:?JIRA_USER_EMAIL is required}"
 : "${JIRA_API_TOKEN:?JIRA_API_TOKEN is required}"
-${DRY_RUN} || : "${SLACK_WEBHOOK_URL:?SLACK_WEBHOOK_URL is required when not running with --dry-run}"
+${DRY_RUN} || ${SKIP_SLACK} || : "${SLACK_WEBHOOK_URL:?SLACK_WEBHOOK_URL is required unless running with --dry-run or --skip-slack}"
 
 # Atomic directory lock (trap installed only after successful acquisition)
 LOCKDIR="${TMPDIR:-/tmp}/request_art_builds_${VERSION}.lock"
@@ -267,7 +272,7 @@ fi
 if [[ -n "${EXISTING_ART_KEY}" && -n "${EXISTING_QE_KEY}" ]]; then
   QE_LINKS="$(jira GET "/rest/api/3/issue/${EXISTING_QE_KEY}?fields=issuelinks")" || exit 1
   REV_LINK="$(echo "${QE_LINKS}" | jq -r --arg art "${EXISTING_ART_KEY}" --arg lt "${LINK_TYPE_NAME}" '
-    [.fields.issuelinks[]? | select(.type.name == $lt and .outwardIssue.key == $art)] | length
+    [.fields.issuelinks[]? | select(.type.name == $lt and .inwardIssue.key == $art)] | length
   ')"
   [[ "${REV_LINK}" -gt 0 ]] && die "Conflicting reverse link detected: ${EXISTING_QE_KEY} already blocks ${EXISTING_ART_KEY}"
 fi
@@ -328,7 +333,7 @@ if ${DRY_RUN}; then
 else
   QE_LINKS="$(jira GET "/rest/api/3/issue/${QE_KEY}?fields=issuelinks")" || exit 1
   ALREADY_LINKED="$(echo "${QE_LINKS}" | jq -r --arg art "${ART_KEY}" --arg lt "${LINK_TYPE_NAME}" '
-    [.fields.issuelinks[]? | select(.type.name == $lt and .inwardIssue.key == $art)] | length
+    [.fields.issuelinks[]? | select(.type.name == $lt and .outwardIssue.key == $art)] | length
   ')"
   if [[ "${ALREADY_LINKED}" -gt 0 ]]; then
     log "Link verified: ${QE_KEY} is already blocked by ${ART_KEY}"
@@ -341,7 +346,7 @@ else
     jira POST "/rest/api/3/issueLink" "${LINK_PAYLOAD}" >/dev/null || exit 1
     VERIFY_LINKS="$(jira GET "/rest/api/3/issue/${QE_KEY}?fields=issuelinks")" || exit 1
     VERIFIED="$(echo "${VERIFY_LINKS}" | jq -r --arg art "${ART_KEY}" --arg lt "${LINK_TYPE_NAME}" '
-      [.fields.issuelinks[]? | select(.type.name == $lt and .inwardIssue.key == $art)] | length
+      [.fields.issuelinks[]? | select(.type.name == $lt and .outwardIssue.key == $art)] | length
     ')"
     [[ "${VERIFIED}" -gt 0 ]] || die "Link created reported success, but readback verification failed"
     log "Successfully linked: ${QE_KEY} is blocked by ${ART_KEY}"
@@ -349,7 +354,7 @@ else
 fi
 
 # Slack Notification
-if ${ART_CREATED} || ${RESEND_SLACK}; then
+if ${SKIP_SLACK} || ${ART_CREATED} || ${RESEND_SLACK}; then
   GROUP="${SLACK_ART_GROUP_ID:+<!subteam^${SLACK_ART_GROUP_ID}|@release-artists>}"
   GROUP="${GROUP:-@release-artists}"
   ALL_USERS="$(echo "${DEFAULT_CC_USER_IDS} ${SLACK_CC_USER_IDS:-}" | tr ' ' '\n' | grep -v '^$' | sort -u)"
@@ -363,7 +368,16 @@ if ${ART_CREATED} || ${RESEND_SLACK}; then
   MSG+=$'\nReason: '"${REASON}"
   [[ -n "${CC_STR}" ]] && MSG+=$'\ncc '"${CC_STR% }"
 
-  if ${DRY_RUN}; then
+  if ${SKIP_SLACK}; then
+    # Slack's <url|text>/<@id>/<!subteam> markup only renders when delivered via
+    # the API/webhook. For manual copy-paste, emit plain text: a bare URL (Slack
+    # auto-links it) and a literal @release-artists the operator types to mention.
+    MSG_HUMAN="Hello, @release-artists I've opened ${ART_KEY} (${JIRA_BASE_URL}/browse/${ART_KEY}) requesting MicroShift ${VERSION} builds (due date ${ART_DUE_HUMAN}). Please help create RPMs and bootc images, thanks!"
+    MSG_HUMAN+=$'\nReason: '"${REASON}"
+    log "Slack notification skipped (--skip-slack). Paste this into Slack:"
+    printf '%s\n' "----- 8< ----- Slack message ----- 8< -----" "${MSG_HUMAN}" "----- 8< ----------------------- 8< -----" >&2
+    [[ -n "${ALL_USERS}" ]] && log "Then @-mention these people (IDs can't be pasted as mentions): $(echo "${ALL_USERS}" | tr '\n' ' ')"
+  elif ${DRY_RUN}; then
     log "[DRY RUN] Would send the notification for ${ART_KEY} (message, reason, and URL redacted)."
   else
     log "Posting notification to Slack..."

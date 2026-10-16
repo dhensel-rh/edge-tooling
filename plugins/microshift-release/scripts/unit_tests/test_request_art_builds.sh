@@ -42,7 +42,7 @@ jq -e -s '
 jq -e -s '
   [.[] | select(.method == "POST" and (.url | endswith("/issueLink")))
     | .data | fromjson] == [{type: {id: "500"},
-      inwardIssue: {key: "ART-101"}, outwardIssue: {key: "USHIFT-202"}}]
+      inwardIssue: {key: "USHIFT-202"}, outwardIssue: {key: "ART-101"}}]
 ' "${CASE_DIR}/requests.jsonl" >/dev/null
 jq -e -s 'length == 1 and (.[0].text | contains("ART-101"))' \
   "${CASE_DIR}/slack.jsonl" >/dev/null
