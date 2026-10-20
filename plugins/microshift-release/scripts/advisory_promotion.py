@@ -554,7 +554,7 @@ def run_advisory_promotion_checks(version_info, check_stage=True, check_prod=Tru
     all_ids = _all_check_ids(version_info, check_stage, check_prod)
     minor = version_info["minor"]
     if _minor_tuple(minor) < _BOOTC_MIN_MINOR:
-        return [_skip(c, f"N/A (requires 4.18+, version is {minor})") for c in all_ids]
+        return [_skip(c, f"N/A (requires 4.19+, version is {minor})") for c in all_ids]
     if version_info["type"] == "nightly":
         return [_skip(c, "N/A (nightly builds have no advisories)") for c in all_ids]
 
@@ -770,7 +770,7 @@ def main():
         sys.exit(1)
 
     if _minor_tuple(version_info["minor"]) < _BOOTC_MIN_MINOR:
-        print(f"ERROR: Advisory promotion checks require version 4.18+, "
+        print(f"ERROR: Advisory promotion checks require version 4.19+, "
               f"got {version_info['minor']}", file=sys.stderr)
         sys.exit(1)
 

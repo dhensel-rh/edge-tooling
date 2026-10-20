@@ -108,7 +108,7 @@ def _rhel_versions(version_info):
 
 
 def _has_bootc(version_info):
-    """Return True if this version has Konflux bootc images (4.18+)."""
+    """Return True if this version has Konflux bootc images (4.19+)."""
     return _minor_tuple(version_info["minor"]) >= _BOOTC_MIN_MINOR
 
 
@@ -347,7 +347,7 @@ def check_bootc_catalog(rhel, version_info):
     check_id = f"pr_bootc_catalog_el{rhel}"
     minor = _minor_tuple(version_info["minor"])
     if minor < _BOOTC_MIN_MINOR:
-        return _skip(check_id, f"N/A (bootc requires 4.18+, got {version_info['minor']})")
+        return _skip(check_id, f"N/A (bootc requires 4.19+, got {version_info['minor']})")
 
     version = version_info["version"]
     missing = []

@@ -23,8 +23,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Minimum OCP version for bootc image checks
-_BOOTC_MIN_MINOR = (4, 18)
+# Minimum OCP version for bootc image checks (bootc does not run for 4.18)
+_BOOTC_MIN_MINOR = (4, 19)
 # el10 builds required starting in 4.23 / 5.0
 _EL10_MIN_MINOR = (4, 23)
 
@@ -392,7 +392,7 @@ def run_bootc_checks(version_info):
     """Run all bootc artifact checks and return results."""
     minor = version_info["minor"]
     if _minor_tuple(minor) < _BOOTC_MIN_MINOR:
-        return [_skip(c, f"N/A (bootc checks require 4.18+, version is {minor})")
+        return [_skip(c, f"N/A (bootc checks require 4.19+, version is {minor})")
                 for c in _BOOTC_CHECKS]
 
     if version_info["type"] == "nightly":
